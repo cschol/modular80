@@ -16,8 +16,8 @@ The **RATE** knob controls the update rate of the internal clock. It has no func
 external clock signal is connected to the **EXT CLOCK** input.
 
 The **R** knob, and the corresponding input, controls the **R** variable of the equation.
-The [Wikipedia page](https://en.wikipedia.org/wiki/Logistic_map) has a good overview of the
-of different **R** values. The default value corresponds with the onset of *Chaos* in the system.
+The [Wikipedia page](https://en.wikipedia.org/wiki/Logistic_map) has a good overview of the effect
+of different **R** values. The default value corresponds to the onset of *Chaos* in the system.
 
 The **X0** knob sets the initial starting value for the **X** variable of the equation.
 
