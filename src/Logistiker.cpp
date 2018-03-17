@@ -63,10 +63,12 @@ void Logistiker::step() {
 		return;
 	}
 
+	static bool doReset(false);
+
 	if (rstButtonTrigger.process(params[RESET_PARAM].value) ||
 	   (inputs[RST_INPUT].active && rstInputTrigger.process(inputs[RST_INPUT].value)))
 	{
-		x = params[X_PARAM].value;
+		doReset = true;
 	}
 
 	bool doStep(false);
@@ -82,12 +84,19 @@ void Logistiker::step() {
 		// Internal clock
 		phase += pow(2.0f, params[RATE_PARAM].value)/engineGetSampleRate();
 		if (phase >= 1.0f) {
-			phase -= 1.0f;
+			phase = 0.0f;
 			doStep = true;
 		}
 	}
 
 	if (doStep) {
+
+		// Synchronize resetting x with steps.
+		if (doReset) {
+			x = params[X_PARAM].value;
+			doReset = false;
+		}
+
 		const float r = clamp(params[R_PARAM].value + inputs[R_INPUT].value, 0.0f, 8.0f);
 
 		// Don't let population die!
