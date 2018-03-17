@@ -126,6 +126,7 @@ LogistikerWidget::LogistikerWidget(Logistiker *module) : ModuleWidget(module) {
 
 	addInput(Port::create<PJ301MPort>(Vec(54, 276), Port::INPUT, module, Logistiker::CLK_INPUT));
 	addInput(Port::create<PJ301MPort>(Vec(11, 276), Port::INPUT, module, Logistiker::RST_INPUT));
+
 	addOutput(Port::create<PJ301MPort>(Vec(33, 319), Port::OUTPUT, module, Logistiker::X_OUTPUT));
 
 	addChild(Widget::create<ScrewSilver>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
