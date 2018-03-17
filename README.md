@@ -3,7 +3,9 @@
 This repository contains a collection of plugins for [VCV Rack](https://vcvrack.com/),
 the open-source virtual modular synthesizer.
 
-# Overview of plugins
+# Overview of modules
+
+![modular80](/modular80.png)
 
 ## Logistiker
 
