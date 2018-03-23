@@ -1,6 +1,6 @@
-# Plugins for VCV Rack
+# A collection of modules for VCV Rack
 
-This repository contains a collection of plugins for [VCV Rack](https://vcvrack.com/),
+This repository contains a collection of modules for [VCV Rack](https://vcvrack.com/),
 the open-source virtual modular synthesizer.
 
 # Overview of modules
