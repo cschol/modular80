@@ -25,6 +25,8 @@ If the **RESET** button is pressed, or a positive edge arrives at the **RESET** 
 the model starts over from the value set by the **X0** knob. The reset takes effect at the
 next rising edge of the (internal or external) clock signal.
 
+[YoutTube Module Demo](https://youtu.be/xGSvLBChjzk)
+
 # License
 
 Source code licensed under BSD-3-Clause by Christoph Scholtes.
