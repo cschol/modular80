@@ -3,6 +3,8 @@
 This repository contains a collection of modules for [VCV Rack](https://vcvrack.com/),
 the open-source virtual modular synthesizer.
 
+The minimum supported VCV Rack version is **0.6**.
+
 # Overview of modules
 
 ![modular80](/modular80.png)
