@@ -22,9 +22,11 @@ struct Nosering : Module {
 		NUM_PARAMS
 	};
 	enum InputIds {
-		EXT_CHANGE_INPUT,
-		EXT_CHANCE_INPUT,
+		CHANGE_INPUT,
+		CHANCE_INPUT,
 		EXT_RATE_INPUT,
+		EXT_CHANCE_INPUT,
+		INV_OUT_INPUT,
 		NUM_INPUTS
 	};
 	enum OutputIds {
@@ -79,8 +81,8 @@ void Nosering::step() {
 	bool doStep(false);
 
 	// Inputs
-	const float change = (params[CHANGE_PARAM].value + inputs[EXT_CHANGE_INPUT].value);
-	const float chance = params[CHANCE_PARAM].value;
+	const float change = clamp((params[CHANGE_PARAM].value + inputs[CHANGE_INPUT].value), -10.0f, 10.0f);
+	const float chance = clamp((params[CHANCE_PARAM].value + inputs[CHANCE_INPUT].value), -10.0f, 10.0f);
 
 	// Generate White noise sample
 	const float noiseSample = clamp(_uniform(_generator), -10.0f, 10.0f);
@@ -121,7 +123,8 @@ void Nosering::step() {
 		unsigned int newData = (sample > chance) ? 0 : 1;
 		unsigned int oldData = shiftRegister[SR_SIZE - 1];
 
-		const bool invertOldData = (params[INVERT_OLD_DATA_PARAM].value != 0.0f);
+		const bool invertOldData = (params[INVERT_OLD_DATA_PARAM].value != 0.0f) ||
+								   (inputs[INV_OUT_INPUT].value != 0.0f);
 		if (invertOldData) {
 			oldData = (oldData == 1) ? 0 : 1;
 		}
@@ -183,16 +186,18 @@ NoseringWidget::NoseringWidget(Nosering *module) : ModuleWidget(module) {
 	addChild(Widget::create<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
 	addChild(Widget::create<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
 
-	addParam(ParamWidget::create<Davies1900hLargeBlackKnob>(Vec(18, 62), module, Nosering::INT_RATE_PARAM, 0, 14.0f, 0.0f));
-	addParam(ParamWidget::create<Davies1900hBlackKnob>(Vec(49, 140), module, Nosering::CHANGE_PARAM, -10.0f, 10.0f, -10.0f));
-	addParam(ParamWidget::create<Davies1900hBlackKnob>(Vec(49, 206), module, Nosering::CHANCE_PARAM, -10.0f, 10.0f, -10.0f));
-	addParam(ParamWidget::create<CKSS>(Vec(16, 180), module, Nosering::INVERT_OLD_DATA_PARAM, 0.0f, 1.0f, 0.0f));
+	addParam(ParamWidget::create<Davies1900hBlackKnob>(Vec(49, 52), module, Nosering::INT_RATE_PARAM, 0, 14.0f, 0.0f));
+	addParam(ParamWidget::create<Davies1900hBlackKnob>(Vec(49, 109), module, Nosering::CHANGE_PARAM, -10.0f, 10.0f, -10.0f));
+	addParam(ParamWidget::create<Davies1900hBlackKnob>(Vec(49, 166), module, Nosering::CHANCE_PARAM, -10.0f, 10.0f, -10.0f));
+	addParam(ParamWidget::create<CKSS>(Vec(60, 224), module, Nosering::INVERT_OLD_DATA_PARAM, 0.0f, 1.0f, 0.0f));
 
-	addInput(Port::create<PJ301MPort>(Vec(11, 146), Port::INPUT, module, Nosering::EXT_CHANGE_INPUT));
-	addInput(Port::create<PJ301MPort>(Vec(11, 212), Port::INPUT, module, Nosering::EXT_CHANCE_INPUT));
-	addInput(Port::create<PJ301MPort>(Vec(11, 276), Port::INPUT, module, Nosering::EXT_RATE_INPUT));
+	addInput(Port::create<PJ301MPort>(Vec(11, 58), Port::INPUT, module, Nosering::EXT_RATE_INPUT));
+	addInput(Port::create<PJ301MPort>(Vec(11, 115), Port::INPUT, module, Nosering::CHANGE_INPUT));
+	addInput(Port::create<PJ301MPort>(Vec(11, 172), Port::INPUT, module, Nosering::CHANCE_INPUT));
+	addInput(Port::create<PJ301MPort>(Vec(11, 221), Port::INPUT, module, Nosering::INV_OUT_INPUT));
+	addInput(Port::create<PJ301MPort>(Vec(11, 275), Port::INPUT, module, Nosering::EXT_CHANCE_INPUT));
 
-	addOutput(Port::create<PJ301MPort>(Vec(56, 276), Port::OUTPUT, module, Nosering::NOISE_OUTPUT));
+	addOutput(Port::create<PJ301MPort>(Vec(56, 275), Port::OUTPUT, module, Nosering::NOISE_OUTPUT));
 	addOutput(Port::create<PJ301MPort>(Vec(11, 319), Port::OUTPUT, module, Nosering::N_PLUS_1_OUTPUT));
 	addOutput(Port::create<PJ301MPort>(Vec(56, 319), Port::OUTPUT, module, Nosering::TWO_POW_N_OUTPUT));
 

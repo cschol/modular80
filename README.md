@@ -43,17 +43,22 @@ external clock signal is connected to the **EXT CLOCK** input.
 The **CHANGE** knob controls the probability that **new data** is introduced into the system.
 All the way CCW means only new data is feed into the shift register. All the way CW means only
 old data is recycled in the shift register, i.e. the shift register content is looping.
+The corresponding input provides CV contol of the **CHANGE** parameter.
 
 The **CHANCE** knob controls the probability of introducing either a **0** (all the way CCW) or
-a **1** (all the way CW) into the system.
+a **1** (all the way CW) into the system. The corresponding input provides CV contol of the **CHANCE** parameter.
 
 The **INV OLD** switch will cause the last bit pushed out of the shift register to be **inverted**
-before feeding it back into the shift register input.
+before feeding it back into the shift register input. The corresponding input provides CV control over
+the **INV OLD** parameter.
 
-The **NOISE OUT** output carries the internal noise signal of the module.
+The **EXT CHANCE** input switches the internal signal used with the Chance and Change comparators
+from internally generated White Noise to the external signal connected to the **EXT CHANCE** input.
+
+The **NOISE OUT** output carries the internal White Noise signal of the module.
 
 The **n+1** output produces **n+1** or 9 levels, the **2^n** output produces **2^n** or 256 levels.
-This is comparable to the [Buchla 266 Source Of Uncertainty](https://modularsynthesis.com/roman/buchla_266/266sou.htm).
+This is comparable the functionality of the [Buchla 266 Source Of Uncertainty](https://modularsynthesis.com/roman/buchla_266/266sou.htm).
 
 
 # License
