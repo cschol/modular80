@@ -11,4 +11,5 @@ void init(rack::Plugin *p) {
 	p->manual = "https://github.com/cschol/modular80/blob/master/README.md";
 
 	p->addModel(modelLogistiker);
+	p->addModel(modelNosering);
 }
