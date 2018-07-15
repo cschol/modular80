@@ -12,4 +12,5 @@ void init(rack::Plugin *p) {
 
 	p->addModel(modelLogistiker);
 	p->addModel(modelNosering);
+	p->addModel(modelRadioMusic);
 }

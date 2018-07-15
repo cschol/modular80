@@ -1,0 +1,6 @@
+[submodule "dep/dr_libs"]
+	path = dep/dr_libs
+	url = https://github.com/mackron/dr_libs.git
+[submodule "src/dep/dr_libs"]
+	path = src/dep/dr_libs
+	url = https://github.com/mackron/dr_libs.git

@@ -3,7 +3,7 @@
 This repository contains a collection of modules for [VCV Rack](https://vcvrack.com/),
 the open-source virtual modular synthesizer.
 
-The minimum supported VCV Rack version is **0.6**.
+The minimum supported VCV Rack version is **0.6.x**.
 
 # Overview of modules
 
@@ -32,7 +32,7 @@ next rising edge of the (internal or external) clock signal.
 ## Nosering
 
 The `Nosering` module is inspired by Grant Richter's [Noisering](https://malekkoheavyindustry.com/product/richter-noisering/) module. It does not implement all of
-the Noisering functionality, but enough to be useful for my purposes.
+the Noisering functionality, but enough to be useful and fun.
 
 See [this page](https://www.infinitesimal.eu/modules/index.php?title=Malekko_Noisering) for more
 information on theory of operation of the original *Noisering* module.
@@ -60,7 +60,47 @@ The **NOISE OUT** output carries the internal White Noise signal of the module.
 The **n+1** output produces **n+1** or 9 levels, the **2^n** output produces **2^n** or 256 levels.
 This is comparable the functionality of the [Buchla 266 Source Of Uncertainty](https://modularsynthesis.com/roman/buchla_266/266sou.htm).
 
+## Radio Music
 
-# License
+The `Radio Music` module is an **official port** of the hardware module by [Music Thing Modular](http://musicthing.co.uk/).
 
-Source code licensed under BSD-3-Clause by Christoph Scholtes.
+Tom Whitwell of `Music Thing Modular` has blessed this port and graciously provided the panel artwork.
+
+Be sure to support Tom and `Music Thing Modular` by buying their excellent kits and/or modules!
+
+The Rack version of the module does not use any of the hardware module's firmware code, but instead implements the module's
+fundamental functionality in the context of Rack.
+
+Not all advanced options and modes of the original module are currently implemented, but may be added in future versions.
+
+For more information on the module see the [official documentation](https://github.com/TomWhitwell/RadioMusic/wiki/How-to-use-the-Radio-Music-module).
+
+A collection of sample packs to load can be found on Tom Whitwell's [GitHub page](https://github.com/TomWhitwell/RadioMusic/wiki/Audio-packs-for-the-Radio-Music-module).
+
+[YouTube Module Demo](https://youtu.be/cdk8DFG7_-U)
+
+### Rack module features
+
+- Playback of `.raw` (44.1 kHz, 16 bit, headerless PCM) and `.wav` files (all formats)
+- Supports up to 16 banks (subfolders) with unlimited number of files
+
+### Notable differences to hardware version
+
+- `Root folder` is selected via the context menu (instead of the settings file).
+- `Bank Selection Mode` is accessed via the context menu (instead of pressing and holding the reset button).
+- Implemented options are available via the context menu (instead of a settings file).
+
+### Additional information and resources
+
+All hardware and software design in the original `Radio Music` project is Creative Commons licensed by Tom Whitwell:
+[CC-BY-SA: Attribution / ShareAlike](https://creativecommons.org/licenses/by-sa/3.0/).
+
+The source code for the `Radio Music` Rack module is also licensed under the same Creative Commons license by myself.
+
+# Licenses
+
+`Logistiker` and `Nosering` module source code licensed under BSD-3-Clause by Christoph Scholtes.
+
+`Radio Music` Rack module source code licensed under [CC-BY-SA: Attribution / ShareAlike](https://creativecommons.org/licenses/by-sa/3.0/) by Christoph Scholtes.
+
+[`dr_wav`](https://mackron.github.io/dr_wav) source code is placed into public domain by the author.
