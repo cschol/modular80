@@ -57,7 +57,7 @@ void scan(std::string& root, const bool sort = false, const bool filter = true) 
 			}
 
 			if (bankCount > MAX_NUM_BANKS) {
-				debug("Max Banks reached");
+				warn("Max number of banks reached. Ignoring subdirectories.");
 				return;
 			}
 
@@ -234,13 +234,10 @@ float play(unsigned int channel) {
 
 	if (audio) {
 		if (channel < audio->channels) {
-			if (audio->currentPos < (audio->totalSamples/audio->channels)) {
+			if  (audio->currentPos < (audio->totalSamples/audio->channels) ||
+			   ((audio->currentPos + channel) < audio->totalSamples)) {
 				sample = audio->samples[channel + audio->currentPos];
-			} else {
-				warn("Invalid pos: %d (%s)", audio->currentPos, audio->filePath.c_str());
 			}
-		} else {
-			warn("Invalid channel: %d (%s, %d)", channel, audio->filePath.c_str(), audio->channels);
 		}
 	}
 
@@ -249,9 +246,16 @@ float play(unsigned int channel) {
 
 void advance(bool repeat = false) {
 	if (audio) {
-		audio->currentPos += audio->channels;
-		if (audio->currentPos >= audio->totalSamples && repeat) {
-			audio->currentPos = startPos;
+		const unsigned long nextPos = audio->currentPos + audio->channels;
+		const unsigned long maxPos = audio->totalSamples/audio->channels;
+		if (nextPos >= maxPos) {
+			if (repeat) {
+				audio->currentPos = startPos;
+			} else {
+				audio->currentPos = maxPos;
+			}
+		} else {
+			audio->currentPos = nextPos;
 		}
 	}
 }
@@ -543,9 +547,9 @@ void RadioMusic::loadAudioFiles() {
 
 void RadioMusic::resetCurrentPlayer(float start) {
 	const unsigned int channels = currentPlayer->object()->channels;
-	unsigned long pos = static_cast<int>(start * currentPlayer->object()->totalSamples / channels);
+	unsigned long pos = static_cast<int>(start * (currentPlayer->object()->totalSamples / channels));
 	if (pos >= channels) { pos -= channels; }
-	pos = (pos * channels) % currentPlayer->object()->totalSamples;
+	pos = pos % (currentPlayer->object()->totalSamples / channels);
 	currentPlayer->resetTo(pos);
 }
 
@@ -629,7 +633,7 @@ void RadioMusic::step() {
 
 			unsigned long pos = objects[index]->currentPos + \
 				(currentPlayer->object()->channels * elapsedMs * objects[index]->sampleRate) / 1000;
-			pos = pos % objects[index]->totalSamples;
+			pos = pos % (objects[index]->totalSamples / objects[index]->channels);
 
 			currentPlayer->skipTo(pos);
 
