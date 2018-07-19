@@ -4,6 +4,7 @@
 #include <cfloat>
 #include <thread>
 #include <algorithm>
+#include <sys/stat.h>
 
 #include "dsp/digital.hpp"
 #include "dsp/vumeter.hpp"
@@ -16,18 +17,25 @@
 #include "dep/dr_libs/dr_wav.h"
 
 
+#define MAX_BANK_SIZE 2147483648l // 2GB max per bank, 32GB total (16 banks)
+#define MAX_NUM_BANKS 16
+#define MAX_DIR_DEPTH 1
+
+
 class FileScanner {
 
 public:
 
 FileScanner() :
   scanDepth(0),
-  bankCount(0)
+  bankCount(0),
+  bankSize(0)
   {}
 ~FileScanner() {};
 
 void reset() {
 	bankCount = 0;
+	bankSize = 0;
 	scanDepth = 0;
 	banks.clear();
 }
@@ -67,8 +75,20 @@ void scan(std::string& root, const bool sort = false, const bool filter = true) 
 			};
 
 			scan(entry, sort, filter);
+
 		} else {
-			files.push_back(entry);
+			struct stat statbuf;
+			if (stat(entry.c_str(), &statbuf)) {
+				warn("Failed to get file stats: %s", entry.c_str());
+				continue;
+			}
+			bankSize += (intmax_t)statbuf.st_size;
+			if (bankSize > MAX_BANK_SIZE) {
+				warn("Bank size limit reached. Ignoring file: %s", entry.c_str());
+				continue;
+			} else {
+				files.push_back(entry);
+			}
 		}
 	}
 
@@ -80,17 +100,16 @@ void scan(std::string& root, const bool sort = false, const bool filter = true) 
 	}
 
 	if (!files.empty()) {
+		bankSize = 0;
 		bankCount++;
 		banks.push_back(files);
 	}
 	scanDepth--;
 }
 
-int MAX_NUM_BANKS = 16;
-int MAX_DIR_DEPTH = 1;
-
 int scanDepth;
 int bankCount;
+intmax_t bankSize;
 std::vector< std::vector<std::string> > banks;
 
 };
