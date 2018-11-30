@@ -363,13 +363,17 @@ struct RadioMusic : Module {
 	bool selectBank;
 
 	// Settings
+	bool loopingEnabled;
 	bool enableCrossfade;
 	bool sortFiles;
 	bool allowAllFiles;
 
-
 	json_t *toJson() override {
 		json_t *rootJ = json_object();
+
+		// Option: Loop Samples
+		json_t *loopingJ = json_boolean(loopingEnabled);
+		json_object_set_new(rootJ, "loopingEnabled", loopingJ);
 
 		// Option: Enable Crossfade
 		json_t *crossfadeJ = json_boolean(enableCrossfade);
@@ -395,6 +399,10 @@ struct RadioMusic : Module {
 	}
 
 	void fromJson(json_t *rootJ) override {
+		// Option: Loop Samples
+		json_t *loopingJ = json_object_get(rootJ, "loopingEnabled");
+		if (loopingJ) loopingEnabled = json_boolean_value(loopingJ);
+
 		// Option: Enable Crossfade
 		json_t *crossfadeJ = json_object_get(rootJ, "enableCrossfade");
 		if (crossfadeJ) enableCrossfade = json_boolean_value(crossfadeJ);
@@ -404,7 +412,7 @@ struct RadioMusic : Module {
 		if (sortJ) sortFiles = json_boolean_value(sortJ);
 
 		// Option: Allow All Files
-		json_t *filesJ = json_object_get(rootJ, "allowAllFile");
+		json_t *filesJ = json_object_get(rootJ, "allowAllFiles");
 		if (filesJ) allowAllFiles = json_boolean_value(filesJ);
 
 		// Internal state: rootDir
@@ -479,6 +487,7 @@ void RadioMusic::init() {
 	xfadeGain2 = 1.0f;
 
 	// Settings
+	loopingEnabled = true;
 	enableCrossfade = true;
 	sortFiles = false;
 	allowAllFiles = false;
@@ -726,8 +735,8 @@ void RadioMusic::step() {
 				}
 				output /= currentPlayer->object()->channels;
 
-				currentPlayer->advance(true);
-				previousPlayer->advance(true);
+				currentPlayer->advance(loopingEnabled);
+				previousPlayer->advance(loopingEnabled);
 
 				if (isNear(xfadeGain1+0.005, 1.0f) || isNear(xfadeGain2, 0.0f)) {
 					crossfade = false;
@@ -748,7 +757,7 @@ void RadioMusic::step() {
 				}
 				output /= currentPlayer->object()->channels;
 
-				currentPlayer->advance(true);
+				currentPlayer->advance(loopingEnabled);
 
 				if (isNear(fadeOutGain, 0.0f)) {
 
@@ -766,7 +775,7 @@ void RadioMusic::step() {
 				}
 				output /= currentPlayer->object()->channels;
 
-				currentPlayer->advance(true);
+				currentPlayer->advance(loopingEnabled);
 			}
 
 			block[i] = output;
@@ -863,6 +872,16 @@ struct RadioMusicSelectBankItem : MenuItem {
 	}
 };
 
+struct RadioMusicLoopingEnabledItem : MenuItem {
+	RadioMusic *rm;
+	void onAction(EventAction &e) override {
+		rm->loopingEnabled = !rm->loopingEnabled;
+	}
+	void step() override {
+		rightText = (rm->loopingEnabled == true) ? "✔" : "";
+	}
+};
+
 struct RadioMusicCrossfadeItem : MenuItem {
 	RadioMusic *rm;
 	void onAction(EventAction &e) override {
@@ -914,6 +933,11 @@ Menu *RadioMusicWidget::createContextMenu() {
 
 	MenuLabel *spacerLabel2 = new MenuLabel();
 	menu->addChild(spacerLabel2);
+
+	RadioMusicLoopingEnabledItem *loopingEnabledItem = new RadioMusicLoopingEnabledItem();
+	loopingEnabledItem->text = "Enable Looping";
+	loopingEnabledItem->rm = rm;
+	menu->addChild(loopingEnabledItem);
 
 	RadioMusicCrossfadeItem *crossfadeItem = new RadioMusicCrossfadeItem();
 	crossfadeItem->text = "Enable Crossfade";
