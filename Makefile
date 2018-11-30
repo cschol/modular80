@@ -1,5 +1,5 @@
 SLUG = modular80
-VERSION = 0.6.3
+VERSION = 0.6.4
 
 # FLAGS will be passed to both the C and C++ compiler
 FLAGS +=
@@ -12,7 +12,6 @@ LDFLAGS +=
 
 # Add .cpp and .c files to the build
 SOURCES += $(wildcard src/*.cpp)
-SOURCES += $(wildcard src/dep/audiofile/AudioFile.cpp)
 
 # Add files to the ZIP package when running `make dist`
 DISTRIBUTABLES += $(wildcard LICENSE*) res
