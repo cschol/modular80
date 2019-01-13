@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <cfloat>
 #include <thread>
+#include <atomic>
 #include <algorithm>
 #include <sys/stat.h>
 
@@ -418,6 +419,8 @@ struct RadioMusic : Module {
 	{
 		currentPlayer = &audioPlayer1;
 		previousPlayer = &audioPlayer2;
+		currentObjects = &objects1;
+		loadedObjects = &objects2;
 
 		init();
 	}
@@ -429,6 +432,7 @@ struct RadioMusic : Module {
 	void threadedScan();
 	void scanAudioFiles();
 	void threadedLoad();
+	void threadedClear();
 	void loadAudioFiles();
 	void resetCurrentPlayer(float start);
 
@@ -510,7 +514,10 @@ private:
 	AudioPlayer *currentPlayer;
 	AudioPlayer *previousPlayer;
 
-	std::vector<std::shared_ptr<AudioObject>> objects;
+	std::vector<std::shared_ptr<AudioObject>> objects1;
+	std::vector<std::shared_ptr<AudioObject>> objects2;
+	std::vector<std::shared_ptr<AudioObject>>* currentObjects;
+	std::vector<std::shared_ptr<AudioObject>>* loadedObjects;
 
 	SchmittTrigger rstButtonTrigger;
 	SchmittTrigger rstInputTrigger;
@@ -533,7 +540,7 @@ private:
 	SampleRateConverter<1> outputSrc;
 	DoubleRingBuffer<Frame<1>, 256> outputBuffer;
 
-	bool ready;
+	std::atomic<bool> filesLoaded;
 	int currentBank;
 
 	FileScanner scanner;
@@ -557,7 +564,7 @@ void RadioMusic::init() {
 	loadFiles = false;
 	scanFiles = false;
 	selectBank = 0;
-	ready = false;
+	filesLoaded = false;
 	fadeOutGain = 1.0f;
 	xfadeGain1 = 0.0f;
 	xfadeGain2 = 1.0f;
@@ -613,8 +620,6 @@ void RadioMusic::threadedLoad() {
 		return;
 	}
 
-	objects.clear();
-
 	currentBank = clamp(currentBank, 0, (int)scanner.banks.size()-1);
 
 	const std::vector<std::string> files = scanner.banks[currentBank];
@@ -645,7 +650,7 @@ void RadioMusic::threadedLoad() {
 
 		// Actually load files
 		if (object->load(files[i])) {
-			objects.push_back(std::move(object));
+			loadedObjects->push_back(std::move(object));
 		} else {
 			warn("Failed to load object %d %s", i, files[i].c_str());
 		}
@@ -654,7 +659,13 @@ void RadioMusic::threadedLoad() {
 	prevIndex = -1; // Force channel change detection upon loading files
 	elapsedMs = 0; // Reset station to beginning
 
-	ready = true;
+	filesLoaded = true;
+
+	while(filesLoaded) {
+		// Wait for object pointers to be swapped.
+	}
+
+	loadedObjects->clear();
 }
 
 void RadioMusic::loadAudioFiles() {
@@ -684,12 +695,19 @@ void RadioMusic::step() {
 	}
 
 	if (loadFiles) {
-		// Disable channel switching and resetting while loading files.
-		ready = false;
-
 		loadAudioFiles();
 
 		loadFiles = false;
+	}
+
+	if (filesLoaded) {
+		// Make newly loaded objects the current objects.
+		std::vector<std::shared_ptr<AudioObject>>* tmp;
+		tmp = currentObjects;
+		currentObjects = loadedObjects;
+		loadedObjects = tmp;
+
+		filesLoaded = false;
 	}
 
 	// Bank selection mode
@@ -717,7 +735,7 @@ void RadioMusic::step() {
 	// Start knob & input
 	const float start = clamp(params[START_PARAM].value + inputs[START_INPUT].value/5.0f, 0.0f, 1.0f);
 
-	if (ready && (rstButtonTrigger.process(params[RESET_PARAM].value) ||
+	if (currentObjects->size() > 0 && (rstButtonTrigger.process(params[RESET_PARAM].value) ||
 		(inputs[RESET_INPUT].active && rstInputTrigger.process(inputs[RESET_INPUT].value)))) {
 
 		fadeOutGain = 1.0f;
@@ -734,23 +752,23 @@ void RadioMusic::step() {
 	// Channel knob & input
 	const float channel = clamp(params[CHANNEL_PARAM].value + inputs[STATION_INPUT].value/5.0f, 0.0f, 1.0f);
 	const int index = \
-		clamp(static_cast<int>(rescale(channel, 0.0f, 1.0f, 0.0f, static_cast<float>(objects.size()))),
-			0, objects.size() - 1);
+		clamp(static_cast<int>(rescale(channel, 0.0f, 1.0f, 0.0f, static_cast<float>(currentObjects->size()))),
+			0, currentObjects->size() - 1);
 
 
 	// Channel switch detection
-	if (ready && index != prevIndex) {
+	if (currentObjects->size() > 0 && index != prevIndex) {
 		AudioPlayer *tmp;
 		tmp = previousPlayer;
 		previousPlayer = currentPlayer;
 		currentPlayer = tmp;
 
-		if (index < (int)objects.size()) {
-			currentPlayer->load(objects[index]);
+		if (index < (int)currentObjects->size()) {
+			currentPlayer->load(currentObjects->at(index));
 
-			unsigned long pos = objects[index]->currentPos + \
-				(currentPlayer->object()->channels * elapsedMs * objects[index]->sampleRate) / 1000;
-			pos = pos % (objects[index]->totalSamples / objects[index]->channels);
+			unsigned long pos = currentObjects->at(index)->currentPos + \
+				(currentPlayer->object()->channels * elapsedMs * currentObjects->at(index)->sampleRate) / 1000;
+			pos = pos % (currentObjects->at(index)->totalSamples / currentObjects->at(index)->channels);
 
 			currentPlayer->skipTo(pos);
 
