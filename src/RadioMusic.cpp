@@ -16,6 +16,12 @@
 #define DR_WAV_IMPLEMENTATION
 #include "dep/dr_libs/dr_wav.h"
 
+#define DR_MP3_IMPLEMENTATION
+#include "dep/dr_libs/dr_mp3.h"
+
+#define DR_FLAC_IMPLEMENTATION
+#include "dep/dr_libs/dr_flac.h"
+
 #define MAX_BANK_SIZE 2147483648l // 2GB max per bank, 32GB total (16 banks)
 #define MAX_NUM_BANKS 16
 #define MAX_DIR_DEPTH 1
@@ -41,7 +47,10 @@ void reset() {
 
 static bool isSupportedAudioFormat(std::string& path) {
 	const std::string tmpF = stringLowercase(path);
-	return (stringEndsWith(tmpF, ".wav") || stringEndsWith(tmpF, ".raw"));
+	return (stringEndsWith(tmpF, ".wav") ||
+	        stringEndsWith(tmpF, ".mp3") ||
+			stringEndsWith(tmpF, ".flac") ||
+			stringEndsWith(tmpF, ".raw"));
 }
 
 void scan(std::string& root, const bool sort = false, const bool filter = true) {
@@ -144,6 +153,72 @@ float peak;
 
 };
 
+
+class FlacAudioObject : public AudioObject {
+
+public:
+
+FlacAudioObject() : AudioObject() {
+	bytesPerSample = 4;
+};
+~FlacAudioObject() {
+	if (samples) {
+		drflac_free(samples);
+	}
+}
+
+bool load(const std::string &path) override {
+	drflac_uint64 totalPCMFrames;
+	filePath = path;
+	samples = drflac_open_file_and_read_pcm_frames_f32(
+		filePath.c_str(), &channels, &sampleRate, &totalPCMFrames
+	);
+	totalSamples = totalPCMFrames*channels;
+
+	if (samples) {
+		for (size_t i = 0; i < totalSamples; ++i) {
+			if (samples[i] > peak) peak = samples[i];
+		}
+	}
+
+	return (samples != NULL);
+}
+};
+
+
+class Mp3AudioObject : public AudioObject {
+
+public:
+
+Mp3AudioObject() : AudioObject() {
+	bytesPerSample = 4;
+};
+~Mp3AudioObject() {
+	if (samples) {
+		drmp3_free(samples);
+	}
+}
+
+bool load(const std::string &path) override {
+	drmp3_uint64 totalPCMFrames;
+	filePath = path;
+	drmp3_config config;
+	samples = drmp3_open_file_and_read_f32(
+		filePath.c_str(), &config, &totalPCMFrames
+	);
+	sampleRate = config.outputSampleRate;
+	channels = config.outputChannels;
+	totalSamples = totalPCMFrames*channels;
+
+	if (samples) {
+		for (size_t i = 0; i < totalSamples; ++i) {
+			if (samples[i] > peak) peak = samples[i];
+		}
+	}
+
+	return (samples != NULL);
+}
+};
 
 class WavAudioObject : public AudioObject {
 
@@ -543,17 +618,30 @@ void RadioMusic::threadedLoad() {
 	currentBank = clamp(currentBank, 0, (int)scanner.banks.size()-1);
 
 	const std::vector<std::string> files = scanner.banks[currentBank];
+
+	drmp3 mp3;
+	drmp3_config config;
+	drwav wav;
+
 	for (unsigned int i = 0; i < files.size(); ++i) {
 		std::shared_ptr<AudioObject> object;
 
 		// Quickly determine file type
-		drwav wav;
-		if (drwav_init_file(&wav, files[i].c_str())) {
+		const std::string file = files[i];
+		if (stringEndsWith(file, ".mp3") &&
+			drmp3_init_file(&mp3, file.c_str(), &config)) {
+			object = std::make_shared<Mp3AudioObject>();
+			drmp3_uninit(&mp3);
+		} else if (stringEndsWith(file, ".flac") &&
+		           drflac_open_file(file.c_str())) {
+			object = std::make_shared<FlacAudioObject>();
+		} else if (stringEndsWith(file, ".wav") &&
+			       drwav_init_file(&wav, file.c_str())) {
 			object = std::make_shared<WavAudioObject>();
+			drwav_uninit(&wav);
 		} else {
 			object = std::make_shared<RawAudioObject>();
 		}
-		drwav_uninit(&wav);
 
 		// Actually load files
 		if (object->load(files[i])) {

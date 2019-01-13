@@ -81,7 +81,7 @@ A collection of sample packs to load can be found on Tom Whitwell's [GitHub page
 
 ### Rack module features
 
-- Playback of `.raw` (44.1 kHz, 16 bit, headerless PCM) and `.wav` files (all formats)
+- Playback of `.raw` (44.1 kHz, 16 bit, headerless PCM), `.wav` files (all formats), `.flac` files (all formats), and `.mp3` files (all formats)
 - Supports up to 16 banks (subfolders) with a maximum bank size of 2GB per bank
 
 ### Notable differences to hardware version
