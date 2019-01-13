@@ -16,7 +16,6 @@
 #define DR_WAV_IMPLEMENTATION
 #include "dep/dr_libs/dr_wav.h"
 
-
 #define MAX_BANK_SIZE 2147483648l // 2GB max per bank, 32GB total (16 banks)
 #define MAX_NUM_BANKS 16
 #define MAX_DIR_DEPTH 1
@@ -160,10 +159,12 @@ WavAudioObject() : AudioObject() {
 };
 
 bool load(const std::string &path) override {
+	drwav_uint64 totalPCMFrames;
 	filePath = path;
-	samples = drwav_open_and_read_file_f32(
-		filePath.c_str(), &channels, &sampleRate, &totalSamples
+	samples = drwav_open_file_and_read_pcm_frames_f32(
+		filePath.c_str(), &channels, &sampleRate, &totalPCMFrames
 	);
+	totalSamples = totalPCMFrames*channels;
 
 	if (samples) {
 		for (size_t i = 0; i < totalSamples; ++i) {
