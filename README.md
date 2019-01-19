@@ -82,12 +82,15 @@ A collection of sample packs to load can be found on Tom Whitwell's [GitHub page
 ### Rack module features
 
 - Playback of `.raw` (44.1 kHz, 16 bit, headerless PCM), `.wav` files (all formats), `.flac` files (all formats), and `.mp3` files (all formats)
-- Supports up to 16 banks (subfolders) with a maximum bank size of 2GB per bank
+- Supports up to 16 banks (subfolders) with a maximum bank size of 2GB per bank (size in memory!)
 
 ### Notable differences to hardware version
 
 - `Root folder` is selected via the context menu (instead of the settings file).
 - `Bank Selection Mode` is accessed via the context menu (instead of pressing and holding the reset button).
+- `Clear Current Bank` option via context menu to clear the currently playing bank and stop playback.
+- Additional support for `.flac` and `.mp3` file formats.
+- Visual indicator (flashing LEDs) to indicate files are loaded (slow blink) and an error occurred during load (fast blink).
 - Implemented options are available via the context menu (instead of a settings file).
 
 ### Additional information and resources
