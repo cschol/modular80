@@ -27,21 +27,18 @@
 #define MAX_NUM_BANKS 16
 #define MAX_DIR_DEPTH 1
 
-
 class FileScanner {
 
 public:
 
 FileScanner() :
   scanDepth(0),
-  bankCount(0),
-  bankSize(0)
+  bankCount(0)
   {}
 ~FileScanner() {};
 
 void reset() {
 	bankCount = 0;
-	bankSize = 0;
 	scanDepth = 0;
 	banks.clear();
 }
@@ -86,18 +83,7 @@ void scan(std::string& root, const bool sort = false, const bool filter = true) 
 			scan(entry, sort, filter);
 
 		} else {
-			struct stat statbuf;
-			if (stat(entry.c_str(), &statbuf)) {
-				warn("Failed to get file stats: %s", entry.c_str());
-				continue;
-			}
-			bankSize += (intmax_t)statbuf.st_size;
-			if (bankSize > MAX_BANK_SIZE) {
-				warn("Bank size limit reached. Ignoring file: %s", entry.c_str());
-				continue;
-			} else {
-				files.push_back(entry);
-			}
+			files.push_back(entry);
 		}
 	}
 
@@ -109,7 +95,6 @@ void scan(std::string& root, const bool sort = false, const bool filter = true) 
 	}
 
 	if (!files.empty()) {
-		bankSize = 0;
 		bankCount++;
 		banks.push_back(files);
 	}
@@ -118,7 +103,6 @@ void scan(std::string& root, const bool sort = false, const bool filter = true) 
 
 int scanDepth;
 int bankCount;
-intmax_t bankSize;
 std::vector< std::vector<std::string> > banks;
 
 };
@@ -204,10 +188,14 @@ bool load(const std::string &path) override {
 	drmp3_uint64 totalPCMFrames;
 	filePath = path;
 	drmp3_config config;
+
+	sampleRate = engineGetSampleRate();
+	config.outputSampleRate = sampleRate;
+
 	samples = drmp3_open_file_and_read_f32(
 		filePath.c_str(), &config, &totalPCMFrames
 	);
-	sampleRate = config.outputSampleRate;
+
 	channels = config.outputChannels;
 	totalSamples = totalPCMFrames*channels;
 
@@ -389,6 +377,12 @@ long startPos;
 };
 
 
+struct AudioContainer {
+	unsigned long memoryUsage;
+	std::vector<std::shared_ptr<AudioObject>> objects;
+};
+
+
 struct RadioMusic : Module {
 	enum ParamIds {
 		CHANNEL_PARAM,
@@ -419,8 +413,8 @@ struct RadioMusic : Module {
 	{
 		currentPlayer = &audioPlayer1;
 		previousPlayer = &audioPlayer2;
-		currentObjects = &objects1;
-		loadedObjects = &objects2;
+		currentContainer = &audioContainer1;
+		tmpContainer = &audioContainer2;
 
 		init();
 	}
@@ -514,13 +508,15 @@ private:
 	AudioPlayer *currentPlayer;
 	AudioPlayer *previousPlayer;
 
-	std::vector<std::shared_ptr<AudioObject>> objects1;
-	std::vector<std::shared_ptr<AudioObject>> objects2;
-	std::vector<std::shared_ptr<AudioObject>>* currentObjects;
-	std::vector<std::shared_ptr<AudioObject>>* loadedObjects;
+	AudioContainer audioContainer1;
+	AudioContainer audioContainer2;
+	AudioContainer* currentContainer;
+	AudioContainer* tmpContainer;
 
 	SchmittTrigger rstButtonTrigger;
 	SchmittTrigger rstInputTrigger;
+
+	PulseGenerator errorPulse;
 
 	int prevIndex;
 	unsigned long tick;
@@ -535,12 +531,15 @@ private:
 	bool flashResetLed;
 	unsigned long ledTimerMs;
 
+	unsigned long memoryUsage;
+
 	VUMeter vumeter;
 
 	SampleRateConverter<1> outputSrc;
 	DoubleRingBuffer<Frame<1>, 256> outputBuffer;
 
 	std::atomic<bool> filesLoaded;
+	std::atomic<bool> loadError;
 	int currentBank;
 
 	FileScanner scanner;
@@ -564,10 +563,12 @@ void RadioMusic::init() {
 	loadFiles = false;
 	scanFiles = false;
 	selectBank = 0;
+	loadError = false;
 	filesLoaded = false;
 	fadeOutGain = 1.0f;
 	xfadeGain1 = 0.0f;
 	xfadeGain2 = 1.0f;
+	memoryUsage = 0;
 
 	// Settings
 	loopingEnabled = true;
@@ -638,7 +639,7 @@ void RadioMusic::threadedLoad() {
 			object = std::make_shared<Mp3AudioObject>();
 			drmp3_uninit(&mp3);
 		} else if (stringEndsWith(file, ".flac") &&
-		           drflac_open_file(file.c_str())) {
+		    	   drflac_open_file(file.c_str())) {
 			object = std::make_shared<FlacAudioObject>();
 		} else if (stringEndsWith(file, ".wav") &&
 			       drwav_init_file(&wav, file.c_str())) {
@@ -650,9 +651,18 @@ void RadioMusic::threadedLoad() {
 
 		// Actually load files
 		if (object->load(files[i])) {
-			loadedObjects->push_back(std::move(object));
+			const unsigned long memory = object->totalSamples*sizeof(float);
+			if ((tmpContainer->memoryUsage + memory) < MAX_BANK_SIZE) {
+				tmpContainer->objects.push_back(std::move(object));
+				tmpContainer->memoryUsage += memory;
+			} else {
+				warn("Bank memory limit of %u Bytes exceeded. Aborting loading of audio objects.", MAX_BANK_SIZE);
+				loadError = true;
+				break;
+			}
 		} else {
 			warn("Failed to load object %d %s", i, files[i].c_str());
+			loadError = true;
 		}
 	}
 
@@ -665,7 +675,9 @@ void RadioMusic::threadedLoad() {
 		// Wait for object pointers to be swapped.
 	}
 
-	loadedObjects->clear();
+	// After swap, release memory of previous set of audio objects.
+	tmpContainer->objects.clear();
+	tmpContainer->memoryUsage = 0;
 }
 
 void RadioMusic::loadAudioFiles() {
@@ -702,10 +714,10 @@ void RadioMusic::step() {
 
 	if (filesLoaded) {
 		// Make newly loaded objects the current objects.
-		std::vector<std::shared_ptr<AudioObject>>* tmp;
-		tmp = currentObjects;
-		currentObjects = loadedObjects;
-		loadedObjects = tmp;
+		AudioContainer* tmp;
+		tmp = currentContainer;
+		currentContainer = tmpContainer;
+		tmpContainer = tmp;
 
 		filesLoaded = false;
 	}
@@ -735,7 +747,7 @@ void RadioMusic::step() {
 	// Start knob & input
 	const float start = clamp(params[START_PARAM].value + inputs[START_INPUT].value/5.0f, 0.0f, 1.0f);
 
-	if (currentObjects->size() > 0 && (rstButtonTrigger.process(params[RESET_PARAM].value) ||
+	if (currentContainer->objects.size() > 0 && (rstButtonTrigger.process(params[RESET_PARAM].value) ||
 		(inputs[RESET_INPUT].active && rstInputTrigger.process(inputs[RESET_INPUT].value)))) {
 
 		fadeOutGain = 1.0f;
@@ -752,23 +764,23 @@ void RadioMusic::step() {
 	// Channel knob & input
 	const float channel = clamp(params[CHANNEL_PARAM].value + inputs[STATION_INPUT].value/5.0f, 0.0f, 1.0f);
 	const int index = \
-		clamp(static_cast<int>(rescale(channel, 0.0f, 1.0f, 0.0f, static_cast<float>(currentObjects->size()))),
-			0, currentObjects->size() - 1);
+		clamp(static_cast<int>(rescale(channel, 0.0f, 1.0f, 0.0f, static_cast<float>(currentContainer->objects.size()))),
+			0, currentContainer->objects.size() - 1);
 
 
 	// Channel switch detection
-	if (currentObjects->size() > 0 && index != prevIndex) {
+	if (currentContainer->objects.size() > 0 && index != prevIndex) {
 		AudioPlayer *tmp;
 		tmp = previousPlayer;
 		previousPlayer = currentPlayer;
 		currentPlayer = tmp;
 
-		if (index < (int)currentObjects->size()) {
-			currentPlayer->load(currentObjects->at(index));
+		if (index < (int)currentContainer->objects.size()) {
+			currentPlayer->load(currentContainer->objects.at(index));
 
-			unsigned long pos = currentObjects->at(index)->currentPos + \
-				(currentPlayer->object()->channels * elapsedMs * currentObjects->at(index)->sampleRate) / 1000;
-			pos = pos % (currentObjects->at(index)->totalSamples / currentObjects->at(index)->channels);
+			unsigned long pos = currentContainer->objects.at(index)->currentPos + \
+				(currentPlayer->object()->channels * elapsedMs * currentContainer->objects.at(index)->sampleRate) / 1000;
+			pos = pos % (currentContainer->objects.at(index)->totalSamples / currentContainer->objects.at(index)->channels);
 
 			currentPlayer->skipTo(pos);
 
@@ -793,8 +805,8 @@ void RadioMusic::step() {
 	prevIndex = index;
 
 	// Reset LED
-	if (flashResetLed) {
-		static int initTimer(true);
+	if (flashResetLed && !loadError) {
+		static bool initTimer(true);
 		static int timerStart(0);
 
 		if (initTimer) {
@@ -909,10 +921,38 @@ void RadioMusic::step() {
 		outputs[OUT_OUTPUT].value = frame.samples[0];
 
 		// Disable VU Meter in Bank Selection mode.
-		if (!selectBank) {
+		if (!selectBank && !loadError) {
 			for (int i = 0; i < 4; i++){
 				vumeter.setValue(frame.samples[0]/5.0f);
 				lights[LED_3_LIGHT - i].setBrightnessSmooth(vumeter.getBrightness(i));
+			}
+		}
+	}
+
+	if (loadError) {
+		static bool initTimer(true);
+		static int timerStart(0);
+		static bool toggle(true);
+		static int numBlinks(0);
+
+		if (initTimer) {
+			timerStart = ledTimerMs;
+			initTimer = false;
+		}
+
+		for (int i = 0; i < 4; i++) {
+			lights[LED_0_LIGHT+i].value = toggle ? 1.0f : 0.0f;
+		}
+
+		if ((ledTimerMs - timerStart) > 200) {
+			initTimer = true;
+			ledTimerMs = 0;
+			toggle = !toggle;
+
+			if (++numBlinks > 10) {
+				numBlinks = 0;
+				toggle = true;
+				loadError = false;
 			}
 		}
 	}
