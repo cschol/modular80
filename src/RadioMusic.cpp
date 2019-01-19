@@ -372,14 +372,19 @@ std::shared_ptr<AudioObject> object() {
 private:
 
 std::shared_ptr<AudioObject> audio;
-long startPos;
+long startPos = 0;
 
 };
 
 
 struct AudioContainer {
-	unsigned long memoryUsage;
+	unsigned long memoryUsage = 0;
 	std::vector<std::shared_ptr<AudioObject>> objects;
+
+	void clear() {
+		objects.clear();
+		memoryUsage = 0;
+	}
 };
 
 
@@ -429,6 +434,7 @@ struct RadioMusic : Module {
 	void threadedClear();
 	void loadAudioFiles();
 	void resetCurrentPlayer(float start);
+	void clearCurrentBank();
 
 	std::string rootDir;
 	bool loadFiles;
@@ -531,8 +537,6 @@ private:
 	bool flashResetLed;
 	unsigned long ledTimerMs;
 
-	unsigned long memoryUsage;
-
 	VUMeter vumeter;
 
 	SampleRateConverter<1> outputSrc;
@@ -568,7 +572,6 @@ void RadioMusic::init() {
 	fadeOutGain = 1.0f;
 	xfadeGain1 = 0.0f;
 	xfadeGain2 = 1.0f;
-	memoryUsage = 0;
 
 	// Settings
 	loopingEnabled = true;
@@ -607,6 +610,8 @@ void RadioMusic::threadedScan() {
 		return;
 	}
 
+	currentBank = clamp(currentBank, 0, (int)scanner.banks.size()-1);
+
 	loadFiles = true;
 }
 
@@ -620,8 +625,6 @@ void RadioMusic::threadedLoad() {
 		warn("No banks available. Failed to load audio files.");
 		return;
 	}
-
-	currentBank = clamp(currentBank, 0, (int)scanner.banks.size()-1);
 
 	const std::vector<std::string> files = scanner.banks[currentBank];
 
@@ -676,8 +679,7 @@ void RadioMusic::threadedLoad() {
 	}
 
 	// After swap, release memory of previous set of audio objects.
-	tmpContainer->objects.clear();
-	tmpContainer->memoryUsage = 0;
+	tmpContainer->clear();
 }
 
 void RadioMusic::loadAudioFiles() {
@@ -691,6 +693,13 @@ void RadioMusic::resetCurrentPlayer(float start) {
 	if (pos >= channels) { pos -= channels; }
 	pos = pos % (currentPlayer->object()->totalSamples / channels);
 	currentPlayer->resetTo(pos);
+}
+
+void RadioMusic::clearCurrentBank() {
+	previousPlayer->reset();
+	currentPlayer->reset();
+	currentContainer->clear();
+	scanner.banks[currentBank].clear();
 }
 
 void RadioMusic::step() {
@@ -831,6 +840,7 @@ void RadioMusic::step() {
 	if (outputBuffer.empty()) {
 		// Nothing to play if no audio objects are loaded into players.
 		if (!currentPlayer->object() && !previousPlayer->object()) {
+			outputs[OUT_OUTPUT].value = 0.0f;
 			return;
 		}
 
@@ -929,7 +939,7 @@ void RadioMusic::step() {
 		}
 	}
 
-	if (loadError) {
+	if (load) {
 		static bool initTimer(true);
 		static int timerStart(0);
 		static bool toggle(true);
@@ -1019,6 +1029,13 @@ struct RadioMusicSelectBankItem : MenuItem {
 	}
 };
 
+struct RadioMusicClearCurrentBankItem : MenuItem {
+	RadioMusic *rm;
+	void onAction(EventAction &e) override {
+		rm->clearCurrentBank();
+	}
+};
+
 struct RadioMusicLoopingEnabledItem : MenuItem {
 	RadioMusic *rm;
 	void onAction(EventAction &e) override {
@@ -1077,6 +1094,11 @@ Menu *RadioMusicWidget::createContextMenu() {
 	selectBankItem->text = "";
 	selectBankItem->rm = rm;
 	menu->addChild(selectBankItem);
+
+	RadioMusicClearCurrentBankItem *clearCurrentBankItem = new RadioMusicClearCurrentBankItem();
+	clearCurrentBankItem->text = "Clear Current Bank";
+	clearCurrentBankItem->rm = rm;
+	menu->addChild(clearCurrentBankItem);
 
 	MenuLabel *spacerLabel2 = new MenuLabel();
 	menu->addChild(spacerLabel2);
