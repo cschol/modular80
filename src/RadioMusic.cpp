@@ -424,6 +424,16 @@ struct RadioMusic : Module {
 		init();
 	}
 
+	~RadioMusic() {
+		// If loading is in progress, set a kill flag for the thread.
+		if (loadingFiles) {
+			killThread = true;
+		}
+
+		// Wait for long-running load thread to finish, otherwise it cores.
+		while(loadingFiles) {}
+	}
+
 	void step() override;
 	void reset() override;
 	void init();
@@ -545,6 +555,8 @@ private:
 	std::atomic<bool> filesLoaded;
 	std::atomic<bool> loadingFiles;
 	std::atomic<bool> loadError;
+	std::atomic<bool> abortLoad;
+	std::atomic<bool> killThread;
 	int currentBank;
 
 	FileScanner scanner;
@@ -574,6 +586,9 @@ void RadioMusic::init() {
 	fadeOutGain = 1.0f;
 	xfadeGain1 = 0.0f;
 	xfadeGain2 = 1.0f;
+
+	killThread = false;
+	abortLoad = false;
 
 	// Settings
 	loopingEnabled = true;
@@ -658,6 +673,18 @@ void RadioMusic::threadedLoad() {
 
 		// Actually load files
 		if (object->load(files[i])) {
+			// Don't mess with the containers if we are shutting down.
+			if (killThread) {
+				loadingFiles = false;
+				return;
+			}
+			// Abort the current load process and release the memory.
+			if (abortLoad) {
+				tmpContainer->clear();
+				loadingFiles = false;
+				return;
+			}
+
 			const unsigned long memory = object->totalSamples*sizeof(float);
 			if ((tmpContainer->memoryUsage + memory) < MAX_BANK_SIZE) {
 				tmpContainer->objects.push_back(std::move(object));
@@ -726,9 +753,16 @@ void RadioMusic::step() {
 	}
 
 	if (loadFiles) {
-		loadAudioFiles();
-
-		loadFiles = false;
+		// If we are already loading, tell the thread to abort the
+		// current loading process.
+		if (loadingFiles && !abortLoad) {
+			abortLoad = true;
+		}
+		if (!loadingFiles) {
+			abortLoad = false;
+			loadAudioFiles();
+			loadFiles = false;
+		}
 	}
 
 	if (filesLoaded) {
