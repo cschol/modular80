@@ -543,6 +543,7 @@ private:
 	DoubleRingBuffer<Frame<1>, 256> outputBuffer;
 
 	std::atomic<bool> filesLoaded;
+	std::atomic<bool> loadingFiles;
 	std::atomic<bool> loadError;
 	int currentBank;
 
@@ -567,6 +568,7 @@ void RadioMusic::init() {
 	loadFiles = false;
 	scanFiles = false;
 	selectBank = 0;
+	loadingFiles = false;
 	loadError = false;
 	filesLoaded = false;
 	fadeOutGain = 1.0f;
@@ -626,6 +628,8 @@ void RadioMusic::threadedLoad() {
 		return;
 	}
 
+	loadingFiles = true;
+
 	const std::vector<std::string> files = scanner.banks[currentBank];
 
 	drmp3 mp3;
@@ -680,6 +684,8 @@ void RadioMusic::threadedLoad() {
 
 	// After swap, release memory of previous set of audio objects.
 	tmpContainer->clear();
+
+	loadingFiles = false;
 }
 
 void RadioMusic::loadAudioFiles() {
@@ -696,10 +702,14 @@ void RadioMusic::resetCurrentPlayer(float start) {
 }
 
 void RadioMusic::clearCurrentBank() {
+	currentContainer->clear();
 	previousPlayer->reset();
 	currentPlayer->reset();
-	currentContainer->clear();
 	scanner.banks[currentBank].clear();
+
+	for (int i = 0; i < 4; i++) {
+		lights[LED_0_LIGHT+i].value = 0.0f;
+	}
 }
 
 void RadioMusic::step() {
@@ -841,88 +851,89 @@ void RadioMusic::step() {
 		// Nothing to play if no audio objects are loaded into players.
 		if (!currentPlayer->object() && !previousPlayer->object()) {
 			outputs[OUT_OUTPUT].value = 0.0f;
-			return;
 		}
+		else // Process audio
+		{
+			float block[BLOCK_SIZE];
 
-		float block[BLOCK_SIZE];
+			for (int i = 0; i < BLOCK_SIZE; i++) {
+				float output(0.0f);
 
-		for (int i = 0; i < BLOCK_SIZE; i++) {
-			float output(0.0f);
+				// Crossfade?
+				if (crossfade) {
 
-			// Crossfade?
-			if (crossfade) {
+					xfadeGain1 = rack::crossfade(xfadeGain1, 1.0f, 0.005); // 0.005 = ~25ms
+					xfadeGain2 = rack::crossfade(xfadeGain2, 0.0f, 0.005); // 0.005 = ~25ms
 
-				xfadeGain1 = rack::crossfade(xfadeGain1, 1.0f, 0.005); // 0.005 = ~25ms
-				xfadeGain2 = rack::crossfade(xfadeGain2, 0.0f, 0.005); // 0.005 = ~25ms
+					for (size_t channel = 0; channel < currentPlayer->object()->channels; channel++) {
+						const float currSample = currentPlayer->play(channel);
+						const float prevSample = previousPlayer->play(channel);
+						const float out = currSample * xfadeGain1 + prevSample * xfadeGain2;
 
-				for (size_t channel = 0; channel < currentPlayer->object()->channels; channel++) {
-					const float currSample = currentPlayer->play(channel);
-					const float prevSample = previousPlayer->play(channel);
-					const float out = currSample * xfadeGain1 + prevSample * xfadeGain2;
+						output += 5.0f * out / currentPlayer->object()->peak;
+					}
+					output /= currentPlayer->object()->channels;
 
-					output += 5.0f * out / currentPlayer->object()->peak;
+					currentPlayer->advance(loopingEnabled);
+					previousPlayer->advance(loopingEnabled);
+
+					if (isNear(xfadeGain1+0.005, 1.0f) || isNear(xfadeGain2, 0.0f)) {
+						crossfade = false;
+					}
+
 				}
-				output /= currentPlayer->object()->channels;
+				// Fade out (before resetting)?
+				else if (fadeout)
+				{
 
-				currentPlayer->advance(loopingEnabled);
-				previousPlayer->advance(loopingEnabled);
+					fadeOutGain = rack::crossfade(fadeOutGain, 0.0f, 0.05); // 0.05 = ~5ms
 
-				if (isNear(xfadeGain1+0.005, 1.0f) || isNear(xfadeGain2, 0.0f)) {
-					crossfade = false;
+					for (size_t channel = 0; channel < currentPlayer->object()->channels; channel++) {
+						const float sample = currentPlayer->play(channel);
+						const float out = sample * fadeOutGain;
+
+						output += 5.0f * out / currentPlayer->object()->peak;
+					}
+					output /= currentPlayer->object()->channels;
+
+					currentPlayer->advance(loopingEnabled);
+
+					if (isNear(fadeOutGain, 0.0f)) {
+
+						resetCurrentPlayer(start);
+
+						fadeout = false;
+					}
+				}
+				else // No fading
+				{
+					for (size_t channel = 0; channel < currentPlayer->object()->channels; channel++) {
+						const float out = currentPlayer->play(channel);
+
+						output += 5.0f * out / currentPlayer->object()->peak;
+					}
+					output /= currentPlayer->object()->channels;
+
+					currentPlayer->advance(loopingEnabled);
 				}
 
+				block[i] = output;
 			}
-			// Fade out (before resetting)?
-			else if (fadeout)
-			{
 
-				fadeOutGain = rack::crossfade(fadeOutGain, 0.0f, 0.05); // 0.05 = ~5ms
+			// Sample rate conversion to match Rack engine sample rate.
+			outputSrc.setRates(currentPlayer->object()->sampleRate, engineGetSampleRate());
+			int inLen = BLOCK_SIZE;
+			int outLen = outputBuffer.capacity();
 
-				for (size_t channel = 0; channel < currentPlayer->object()->channels; channel++) {
-					const float sample = currentPlayer->play(channel);
-					const float out = sample * fadeOutGain;
+			Frame<1> frame[BLOCK_SIZE];
 
-					output += 5.0f * out / currentPlayer->object()->peak;
-				}
-				output /= currentPlayer->object()->channels;
-
-				currentPlayer->advance(loopingEnabled);
-
-				if (isNear(fadeOutGain, 0.0f)) {
-
-					resetCurrentPlayer(start);
-
-					fadeout = false;
-				}
-			}
-			else // No fading
-			{
-				for (size_t channel = 0; channel < currentPlayer->object()->channels; channel++) {
-					const float out = currentPlayer->play(channel);
-
-					output += 5.0f * out / currentPlayer->object()->peak;
-				}
-				output /= currentPlayer->object()->channels;
-
-				currentPlayer->advance(loopingEnabled);
+			for (int i = 0; i < BLOCK_SIZE; i++) {
+				frame[i].samples[0] = block[i];
 			}
 
-			block[i] = output;
+			outputSrc.process(frame, &inLen, outputBuffer.endData(), &outLen);
+			outputBuffer.endIncr(outLen);
 		}
-
-		// Sample rate conversion to match Rack engine sample rate.
-		outputSrc.setRates(currentPlayer->object()->sampleRate, engineGetSampleRate());
-		int inLen = BLOCK_SIZE;
-		int outLen = outputBuffer.capacity();
-
-		Frame<1> frame[BLOCK_SIZE];
-
-		for (int i = 0; i < BLOCK_SIZE; i++) {
-			frame[i].samples[0] = block[i];
-		}
-
-		outputSrc.process(frame, &inLen, outputBuffer.endData(), &outLen);
-		outputBuffer.endIncr(outLen);
 	}
 
 	// Output processing & metering
@@ -939,11 +950,20 @@ void RadioMusic::step() {
 		}
 	}
 
-	if (load) {
+	// Indicator for loading audio files and errors during load.
+	if (loadingFiles || loadError) {
 		static bool initTimer(true);
-		static int timerStart(0);
-		static bool toggle(true);
+		static unsigned long timerStart(0);
+		static bool toggle(false);
 		static int numBlinks(0);
+		unsigned int blinkTime(0);
+
+		if (loadingFiles) {
+			blinkTime = 1000u;
+		}
+		if (loadError) {
+			blinkTime = 200u;
+		}
 
 		if (initTimer) {
 			timerStart = ledTimerMs;
@@ -954,14 +974,14 @@ void RadioMusic::step() {
 			lights[LED_0_LIGHT+i].value = toggle ? 1.0f : 0.0f;
 		}
 
-		if ((ledTimerMs - timerStart) > 200) {
+		if ((ledTimerMs - timerStart) > blinkTime) {
 			initTimer = true;
 			ledTimerMs = 0;
 			toggle = !toggle;
 
-			if (++numBlinks > 10) {
+			if (loadError && ++numBlinks > 10) {
 				numBlinks = 0;
-				toggle = true;
+				toggle = false;
 				loadError = false;
 			}
 		}
