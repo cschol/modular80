@@ -1,0 +1,24 @@
+{
+	"slug": "modular80",
+	"name": "modular80",
+	"author": "cschol",
+	"license": "BSD-3-Clause",
+	"authorEmail": "modular80@gmail.com",
+	"pluginUrl": "https://github.com/cschol/modular80/blob/master/README.md",
+	"sourceUrl": "https://github.com/cschol/modular80.git",
+	"version": "1.0.0",
+	"modules": {
+		"Logistiker": {
+			"name": "Logistiker",
+			"tags": ["RANDOM"]
+		},
+		"Radio Music": {
+			"name": "Radio Music",
+			"tags": ["SAMPLER"]
+		},
+		"Nosering": {
+			"name": "Nosering",
+			"tags": ["NOISE", "RANDOM"]
+		}
+	}
+}

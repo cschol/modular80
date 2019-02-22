@@ -1,14 +1,9 @@
 #include "modular80.hpp"
 
-// The plugin-wide instance of the Plugin class
-Plugin *plugin;
+Plugin *pluginInstance;
 
-void init(rack::Plugin *p) {
-	plugin = p;
-	p->slug = TOSTRING(SLUG);
-	p->version = TOSTRING(VERSION);
-	p->website = "https://github.com/cschol/modular80";
-	p->manual = "https://github.com/cschol/modular80/blob/master/README.md";
+void init(Plugin *p) {
+	pluginInstance = p;
 
 	p->addModel(modelLogistiker);
 	p->addModel(modelNosering);

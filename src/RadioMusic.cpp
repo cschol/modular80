@@ -8,7 +8,7 @@
 
 #include "dsp/digital.hpp"
 #include "dsp/vumeter.hpp"
-#include "dsp/samplerate.hpp"
+#include "dsp/resampler.hpp"
 #include "dsp/ringbuffer.hpp"
 
 #include "osdialog.h"
@@ -41,36 +41,36 @@ void reset() {
 }
 
 static bool isSupportedAudioFormat(std::string& path) {
-	const std::string tmpF = stringLowercase(path);
-	return (stringEndsWith(tmpF, ".wav") || stringEndsWith(tmpF, ".raw"));
+	const std::string tmpF = string::lowercase(path);
+	return (string::endsWith(tmpF, ".wav") || string::endsWith(tmpF, ".raw"));
 }
 
 void scan(std::string& root, const bool sort = false, const bool filter = true) {
 
 	std::vector<std::string> files;
-	std::vector<std::string> entries;
+	std::list<std::string> entries;
 
-	entries = systemListEntries(root);
+	entries = system::listEntries(root);
 
 	if (sort) {
-		std::sort(entries.begin(), entries.end());
+		entries.sort();
 	}
 
 	for (std::string &entry : entries) {
-		if (systemIsDirectory(entry)) {
-			if (stringStartsWith(entry, "SPOTL") ||
-			    stringStartsWith(entry, "TRASH") ||
-				stringStartsWith(entry, "__MACOSX")) {
+		if (system::isDirectory(entry)) {
+			if (string::startsWith(entry, "SPOTL") ||
+			    string::startsWith(entry, "TRASH") ||
+				string::startsWith(entry, "__MACOSX")) {
 				continue;
 			}
 
 			if (bankCount > MAX_NUM_BANKS) {
-				warn("Max number of banks reached. Ignoring subdirectories.");
+				WARN("Max number of banks reached. Ignoring subdirectories.");
 				return;
 			}
 
 			if (scanDepth++ > MAX_DIR_DEPTH) {
-				warn("Directory has too many subdirectories: %s", entry.c_str());
+				WARN("Directory has too many subdirectories: %s", entry.c_str());
 				continue;
 			};
 
@@ -79,12 +79,12 @@ void scan(std::string& root, const bool sort = false, const bool filter = true) 
 		} else {
 			struct stat statbuf;
 			if (stat(entry.c_str(), &statbuf)) {
-				warn("Failed to get file stats: %s", entry.c_str());
+				WARN("Failed to get file stats: %s", entry.c_str());
 				continue;
 			}
 			bankSize += (intmax_t)statbuf.st_size;
 			if (bankSize > MAX_BANK_SIZE) {
-				warn("Bank size limit reached. Ignoring file: %s", entry.c_str());
+				WARN("Bank size limit reached. Ignoring file: %s", entry.c_str());
 				continue;
 			} else {
 				files.push_back(entry);
@@ -206,7 +206,7 @@ bool load(const std::string &path) override {
 		if (rawSamples) {
 			const long samplesRead = fread(rawSamples, (size_t)sizeof(int16_t), fsize/bytesPerSample, wav);
 			fclose(wav);
-			if (samplesRead != fsize/(int)bytesPerSample) { warn("Failed to read entire file"); }
+			if (samplesRead != fsize/(int)bytesPerSample) { WARN("Failed to read entire file"); }
 			totalSamples = samplesRead;
 
 			samples = (float*)malloc(sizeof(float) * totalSamples);
@@ -215,13 +215,13 @@ bool load(const std::string &path) override {
 				if (samples[i] > peak) peak = samples[i];
 			}
 		} else {
-			fatal("Failed to allocate memory");
+			FATAL("Failed to allocate memory");
 		}
 
 		free(rawSamples);
 
 	} else {
-		fatal("Failed to load file: %s", filePath.c_str());
+		FATAL("Failed to load file: %s", filePath.c_str());
 	}
 
     return (samples != NULL);
@@ -338,16 +338,18 @@ struct RadioMusic : Module {
 		NUM_LIGHTS
 	};
 
-	RadioMusic() : Module(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS)
+	RadioMusic()
 	{
+		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
+
 		currentPlayer = &audioPlayer1;
 		previousPlayer = &audioPlayer2;
 
 		init();
 	}
 
-	void step() override;
-	void reset() override;
+	void process(const ProcessArgs &args) override;
+	void reset();
 	void init();
 
 	void threadedScan();
@@ -368,7 +370,7 @@ struct RadioMusic : Module {
 	bool sortFiles;
 	bool allowAllFiles;
 
-	json_t *toJson() override {
+	json_t *dataToJson() override {
 		json_t *rootJ = json_object();
 
 		// Option: Loop Samples
@@ -398,7 +400,7 @@ struct RadioMusic : Module {
 		return rootJ;
 	}
 
-	void fromJson(json_t *rootJ) override {
+	void dataFromJson(json_t *rootJ) override {
 		// Option: Loop Samples
 		json_t *loopingJ = json_object_get(rootJ, "loopingEnabled");
 		if (loopingJ) loopingEnabled = json_boolean_value(loopingJ);
@@ -436,8 +438,8 @@ private:
 
 	std::vector<std::shared_ptr<AudioObject>> objects;
 
-	SchmittTrigger rstButtonTrigger;
-	SchmittTrigger rstInputTrigger;
+	dsp::SchmittTrigger rstButtonTrigger;
+	dsp::SchmittTrigger rstInputTrigger;
 
 	int prevIndex;
 	unsigned long tick;
@@ -452,10 +454,10 @@ private:
 	bool flashResetLed;
 	unsigned long ledTimerMs;
 
-	VUMeter vumeter;
+	dsp::VuMeter2 vumeter;
 
-	SampleRateConverter<1> outputSrc;
-	DoubleRingBuffer<Frame<1>, 256> outputBuffer;
+	dsp::SampleRateConverter<1> outputSrc;
+	dsp::DoubleRingBuffer<dsp::Frame<1>, 256> outputBuffer;
 
 	bool ready;
 	int currentBank;
@@ -513,7 +515,7 @@ void RadioMusic::init() {
 
 void RadioMusic::threadedScan() {
 	if (rootDir.empty()) {
-		warn("No root directory defined. Scan failed.");
+		WARN("No root directory defined. Scan failed.");
 		return;
 	}
 
@@ -533,7 +535,7 @@ void RadioMusic::scanAudioFiles() {
 
 void RadioMusic::threadedLoad() {
 	if (scanner.banks.empty()) {
-		warn("No banks available. Failed to load audio files.");
+		WARN("No banks available. Failed to load audio files.");
 		return;
 	}
 
@@ -558,7 +560,7 @@ void RadioMusic::threadedLoad() {
 		if (object->load(files[i])) {
 			objects.push_back(std::move(object));
 		} else {
-			warn("Failed to load object %d %s", i, files[i].c_str());
+			WARN("Failed to load object %d %s", i, files[i].c_str());
 		}
 	}
 
@@ -581,7 +583,7 @@ void RadioMusic::resetCurrentPlayer(float start) {
 	currentPlayer->resetTo(pos);
 }
 
-void RadioMusic::step() {
+void RadioMusic::process(const ProcessArgs &args) {
 
 	if (rootDir.empty()) {
 		// No files loaded yet. Idle.
@@ -620,7 +622,7 @@ void RadioMusic::step() {
 	}
 
 	// Keep track of milliseconds of elapsed time
-	if (tick++ % (static_cast<int>(engineGetSampleRate())/1000) == 0) {
+	if (tick++ % (static_cast<int>(APP->engine->getSampleRate())/1000) == 0) {
 		elapsedMs++;
 		ledTimerMs++;
 	}
@@ -782,11 +784,11 @@ void RadioMusic::step() {
 		}
 
 		// Sample rate conversion to match Rack engine sample rate.
-		outputSrc.setRates(currentPlayer->object()->sampleRate, engineGetSampleRate());
+		outputSrc.setRates(currentPlayer->object()->sampleRate, APP->engine->getSampleRate());
 		int inLen = BLOCK_SIZE;
 		int outLen = outputBuffer.capacity();
 
-		Frame<1> frame[BLOCK_SIZE];
+		dsp::Frame<1> frame[BLOCK_SIZE];
 
 		for (int i = 0; i < BLOCK_SIZE; i++) {
 			frame[i].samples[0] = block[i];
@@ -798,56 +800,30 @@ void RadioMusic::step() {
 
 	// Output processing & metering
 	if (!outputBuffer.empty()) {
-		Frame<1> frame = outputBuffer.shift();
+		dsp::Frame<1> frame = outputBuffer.shift();
 		outputs[OUT_OUTPUT].value = frame.samples[0];
 
 		// Disable VU Meter in Bank Selection mode.
 		if (!selectBank) {
-			for (int i = 0; i < 4; i++){
-				vumeter.setValue(frame.samples[0]/5.0f);
-				lights[LED_3_LIGHT - i].setBrightnessSmooth(vumeter.getBrightness(i));
+			const float sampleTime = APP->engine->getSampleTime();
+			vumeter.process(sampleTime, frame.samples[0]/5.0f);
+
+			if (tick % 512 == 0) {
+				for (int i = 0; i < 4; i++){
+					float b = vumeter.getBrightness(-6.0f * (i+1), 0.0f * i);
+					lights[LED_3_LIGHT - i].setBrightness(b);
+				}
 			}
 		}
 	}
 }
 
-struct RadioMusicWidget : ModuleWidget {
-	RadioMusicWidget(RadioMusic *module);
-	Menu *createContextMenu() override;
-};
-
-RadioMusicWidget::RadioMusicWidget(RadioMusic *module) : ModuleWidget(module) {
-	setPanel(SVG::load(assetPlugin(plugin, "res/Radio.svg")));
-
-	addChild(Widget::create<ScrewSilver>(Vec(14, 0)));
-
-	addChild(ModuleLightWidget::create<MediumLight<RedLight>>(Vec(6, 33), module, RadioMusic::LED_0_LIGHT));
-	addChild(ModuleLightWidget::create<MediumLight<RedLight>>(Vec(19, 33), module, RadioMusic::LED_1_LIGHT));
-	addChild(ModuleLightWidget::create<MediumLight<RedLight>>(Vec(32, 33), module, RadioMusic::LED_2_LIGHT));
-	addChild(ModuleLightWidget::create<MediumLight<RedLight>>(Vec(45, 33), module, RadioMusic::LED_3_LIGHT));
-
-	addParam(ParamWidget::create<Davies1900hBlackKnob>(Vec(12, 49), module, RadioMusic::CHANNEL_PARAM, 0.0f, 1.0f, 0.0f));
-	addParam(ParamWidget::create<Davies1900hBlackKnob>(Vec(12, 131), module, RadioMusic::START_PARAM, 0.0f, 1.0f, 0.0f));
-
-	addChild(ModuleLightWidget::create<MediumLight<RedLight>>(Vec(44, 188), module, RadioMusic::RESET_LIGHT));
-
-	addParam(ParamWidget::create<PB61303>(Vec(25, 202), module, RadioMusic::RESET_PARAM, 0, 1, 0));
-
-	addInput(Port::create<PJ301MPort>(Vec(3, 274), Port::INPUT, module, RadioMusic::STATION_INPUT));
-	addInput(Port::create<PJ301MPort>(Vec(32, 274), Port::INPUT, module, RadioMusic::START_INPUT));
-
-	addInput(Port::create<PJ301MPort>(Vec(3, 318), Port::INPUT, module, RadioMusic::RESET_INPUT));
-	addOutput(Port::create<PJ301MPort>(Vec(32, 318), Port::OUTPUT, module, RadioMusic::OUT_OUTPUT));
-
-	addChild(Widget::create<ScrewSilver>(Vec(14, 365)));
-}
-
 struct RadioMusicDirDialogItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(EventAction &e) override {
+	void onAction(const event::Action &e) override {
 
 		const std::string dir = \
-			rm->rootDir.empty() ? assetLocal("") : rm->rootDir;
+			rm->rootDir.empty() ? asset::user("") : rm->rootDir;
 		char *path = osdialog_file(OSDIALOG_OPEN_DIR, dir.c_str(), NULL, NULL);
 		if (path) {
 			rm->rootDir = std::string(path);
@@ -859,7 +835,7 @@ struct RadioMusicDirDialogItem : MenuItem {
 
 struct RadioMusicSelectBankItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(EventAction &e) override {
+	void onAction(const event::Action &e) override {
 		rm->selectBank = !rm->selectBank;
 
 		if (rm->selectBank == false) {
@@ -874,7 +850,7 @@ struct RadioMusicSelectBankItem : MenuItem {
 
 struct RadioMusicLoopingEnabledItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(EventAction &e) override {
+	void onAction(const event::Action &e) override {
 		rm->loopingEnabled = !rm->loopingEnabled;
 	}
 	void step() override {
@@ -884,7 +860,7 @@ struct RadioMusicLoopingEnabledItem : MenuItem {
 
 struct RadioMusicCrossfadeItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(EventAction &e) override {
+	void onAction(const event::Action &e) override {
 		rm->enableCrossfade = !rm->enableCrossfade;
 	}
 	void step() override {
@@ -894,7 +870,7 @@ struct RadioMusicCrossfadeItem : MenuItem {
 
 struct RadioMusicFileSortItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(EventAction &e) override {
+	void onAction(const event::Action &e) override {
 		rm->sortFiles = !rm->sortFiles;
 	}
 	void step() override {
@@ -904,7 +880,7 @@ struct RadioMusicFileSortItem : MenuItem {
 
 struct RadioMusicFilesAllowedItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(EventAction &e) override {
+	void onAction(const event::Action &e) override {
 		rm->allowAllFiles = !rm->allowAllFiles;
 	}
 	void step() override {
@@ -912,49 +888,74 @@ struct RadioMusicFilesAllowedItem : MenuItem {
 	}
 };
 
-Menu *RadioMusicWidget::createContextMenu() {
-	Menu *menu = ModuleWidget::createContextMenu();
+struct RadioMusicWidget : ModuleWidget {
+	RadioMusicWidget(RadioMusic *module) {
+		setModule(module);
+		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/Radio.svg")));
 
-	MenuLabel *spacerLabel = new MenuLabel();
-	menu->addChild(spacerLabel);
+		addChild(createWidget<ScrewSilver>(Vec(14, 0)));
 
-	RadioMusic *rm = dynamic_cast<RadioMusic*>(module);
-	assert(rm);
+		addChild(createLight<MediumLight<RedLight>>(Vec(6, 33), module, RadioMusic::LED_0_LIGHT));
+		addChild(createLight<MediumLight<RedLight>>(Vec(19, 33), module, RadioMusic::LED_1_LIGHT));
+		addChild(createLight<MediumLight<RedLight>>(Vec(32, 33), module, RadioMusic::LED_2_LIGHT));
+		addChild(createLight<MediumLight<RedLight>>(Vec(45, 33), module, RadioMusic::LED_3_LIGHT));
 
-	RadioMusicDirDialogItem *rootDirItem = new RadioMusicDirDialogItem();
-	rootDirItem->text = "Set Root Directory";
-	rootDirItem->rm = rm;
-	menu->addChild(rootDirItem);
+		//addParam(createParam<Davies1900hBlackKnob>(Vec(12, 49), module, RadioMusic::CHANNEL_PARAM, 0.0f, 1.0f, 0.0f));
+		//addParam(createParam<Davies1900hBlackKnob>(Vec(12, 131), module, RadioMusic::START_PARAM, 0.0f, 1.0f, 0.0f));
+		addParam(createParam<Davies1900hBlackKnob>(Vec(12, 49), module, RadioMusic::CHANNEL_PARAM));
+		addParam(createParam<Davies1900hBlackKnob>(Vec(12, 131), module, RadioMusic::START_PARAM));
 
-	RadioMusicSelectBankItem *selectBankItem = new RadioMusicSelectBankItem();
-	selectBankItem->text = "";
-	selectBankItem->rm = rm;
-	menu->addChild(selectBankItem);
+		addChild(createLight<MediumLight<RedLight>>(Vec(44, 188), module, RadioMusic::RESET_LIGHT));
 
-	MenuLabel *spacerLabel2 = new MenuLabel();
-	menu->addChild(spacerLabel2);
+		//addParam(createParam<PB61303>(Vec(25, 202), module, RadioMusic::RESET_PARAM, 0, 1, 0));
+		addParam(createParam<PB61303>(Vec(25, 202), module, RadioMusic::RESET_PARAM));
 
-	RadioMusicLoopingEnabledItem *loopingEnabledItem = new RadioMusicLoopingEnabledItem();
-	loopingEnabledItem->text = "Enable Looping";
-	loopingEnabledItem->rm = rm;
-	menu->addChild(loopingEnabledItem);
+		addInput(createInput<PJ301MPort>(Vec(3, 274), module, RadioMusic::STATION_INPUT));
+		addInput(createInput<PJ301MPort>(Vec(32, 274), module, RadioMusic::START_INPUT));
 
-	RadioMusicCrossfadeItem *crossfadeItem = new RadioMusicCrossfadeItem();
-	crossfadeItem->text = "Enable Crossfade";
-	crossfadeItem->rm = rm;
-	menu->addChild(crossfadeItem);
+		addInput(createInput<PJ301MPort>(Vec(3, 318), module, RadioMusic::RESET_INPUT));
+		addOutput(createOutput<PJ301MPort>(Vec(32, 318), module, RadioMusic::OUT_OUTPUT));
 
-	RadioMusicFileSortItem *fileSortItem = new RadioMusicFileSortItem();
-	fileSortItem->text = "Sort Files";
-	fileSortItem->rm = rm;
-	menu->addChild(fileSortItem);
+		addChild(createWidget<ScrewSilver>(Vec(14, 365)));
+	};
 
-	RadioMusicFilesAllowedItem *filesAllowedItem = new RadioMusicFilesAllowedItem();
-	filesAllowedItem->text = "Allow All Files";
-	filesAllowedItem->rm = rm;
-	menu->addChild(filesAllowedItem);
+	void appendContextMenu(Menu *menu) override {
+		RadioMusic *module = dynamic_cast<RadioMusic*>(this->module);
 
-	return menu;
-}
+		menu->addChild(new MenuEntry);
 
-Model *modelRadioMusic = Model::create<RadioMusic, RadioMusicWidget>("modular80", "Radio Music", "Radio Music", SAMPLER_TAG);
+		RadioMusicDirDialogItem *rootDirItem = new RadioMusicDirDialogItem;
+		rootDirItem->text = "Set Root Directory";
+		rootDirItem->rm = module;
+		menu->addChild(rootDirItem);
+
+		RadioMusicSelectBankItem *selectBankItem = new RadioMusicSelectBankItem;
+		selectBankItem->text = "";
+		selectBankItem->rm = module;
+		menu->addChild(selectBankItem);
+
+		menu->addChild(new MenuEntry);
+
+		RadioMusicLoopingEnabledItem *loopingEnabledItem = new RadioMusicLoopingEnabledItem;
+		loopingEnabledItem->text = "Enable Looping";
+		loopingEnabledItem->rm = module;
+		menu->addChild(loopingEnabledItem);
+
+		RadioMusicCrossfadeItem *crossfadeItem = new RadioMusicCrossfadeItem;
+		crossfadeItem->text = "Enable Crossfade";
+		crossfadeItem->rm = module;
+		menu->addChild(crossfadeItem);
+
+		RadioMusicFileSortItem *fileSortItem = new RadioMusicFileSortItem;
+		fileSortItem->text = "Sort Files";
+		fileSortItem->rm = module;
+		menu->addChild(fileSortItem);
+
+		RadioMusicFilesAllowedItem *filesAllowedItem = new RadioMusicFilesAllowedItem;
+		filesAllowedItem->text = "Allow All Files";
+		filesAllowedItem->rm = module;
+		menu->addChild(filesAllowedItem);
+	}
+};
+
+Model *modelRadioMusic = createModel<RadioMusic, RadioMusicWidget>("Radio Music");
