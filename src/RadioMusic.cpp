@@ -342,6 +342,13 @@ struct RadioMusic : Module {
 	{
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
+		//addParam(createParam<Davies1900hBlackKnob>(Vec(12, 49), module, RadioMusic::CHANNEL_PARAM, 0.0f, 1.0f, 0.0f));
+		params[CHANNEL_PARAM].config(0.0f, 1.0f, 0.0f, "Channel");
+		//addParam(createParam<Davies1900hBlackKnob>(Vec(12, 131), module, RadioMusic::START_PARAM, 0.0f, 1.0f, 0.0f));
+		params[START_PARAM].config(0.0f, 1.0f, 0.0f, "Start");
+		//addParam(createParam<PB61303>(Vec(25, 202), module, RadioMusic::RESET_PARAM, 0, 1, 0));
+		params[RESET_PARAM].config(0.0f, 1.0f, 0.0f, "Reset");
+
 		currentPlayer = &audioPlayer1;
 		previousPlayer = &audioPlayer2;
 
@@ -820,7 +827,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 
 struct RadioMusicDirDialogItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
+	void onAction(const ActionEvent &e) override {
 
 		const std::string dir = \
 			rm->rootDir.empty() ? asset::user("") : rm->rootDir;
@@ -835,7 +842,7 @@ struct RadioMusicDirDialogItem : MenuItem {
 
 struct RadioMusicSelectBankItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
+	void onAction(const ActionEvent &e) override {
 		rm->selectBank = !rm->selectBank;
 
 		if (rm->selectBank == false) {
@@ -844,47 +851,47 @@ struct RadioMusicSelectBankItem : MenuItem {
 	}
 	void step() override {
 		text = (rm->selectBank != true) ? "Enter Bank Select Mode" : "Exit Bank Select Mode";
-		rightText = (rm->selectBank == true) ? "✔" : "";
+		rightText = CHECKMARK(rm->selectBank);
 	}
 };
 
 struct RadioMusicLoopingEnabledItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
+	void onAction(const ActionEvent &e) override {
 		rm->loopingEnabled = !rm->loopingEnabled;
 	}
 	void step() override {
-		rightText = (rm->loopingEnabled == true) ? "✔" : "";
+		rightText = CHECKMARK(rm->loopingEnabled);
 	}
 };
 
 struct RadioMusicCrossfadeItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
+	void onAction(const ActionEvent &e) override {
 		rm->enableCrossfade = !rm->enableCrossfade;
 	}
 	void step() override {
-		rightText = (rm->enableCrossfade == true) ? "✔" : "";
+		rightText = CHECKMARK(rm->enableCrossfade);
 	}
 };
 
 struct RadioMusicFileSortItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
+	void onAction(const ActionEvent &e) override {
 		rm->sortFiles = !rm->sortFiles;
 	}
 	void step() override {
-		rightText = (rm->sortFiles == true) ? "✔" : "";
+		rightText = CHECKMARK(rm->sortFiles);
 	}
 };
 
 struct RadioMusicFilesAllowedItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
+	void onAction(const ActionEvent &e) override {
 		rm->allowAllFiles = !rm->allowAllFiles;
 	}
 	void step() override {
-		rightText = (rm->allowAllFiles == true) ? "✔" : "";
+		rightText = CHECKMARK(rm->allowAllFiles);
 	}
 };
 
@@ -900,14 +907,10 @@ struct RadioMusicWidget : ModuleWidget {
 		addChild(createLight<MediumLight<RedLight>>(Vec(32, 33), module, RadioMusic::LED_2_LIGHT));
 		addChild(createLight<MediumLight<RedLight>>(Vec(45, 33), module, RadioMusic::LED_3_LIGHT));
 
-		//addParam(createParam<Davies1900hBlackKnob>(Vec(12, 49), module, RadioMusic::CHANNEL_PARAM, 0.0f, 1.0f, 0.0f));
-		//addParam(createParam<Davies1900hBlackKnob>(Vec(12, 131), module, RadioMusic::START_PARAM, 0.0f, 1.0f, 0.0f));
 		addParam(createParam<Davies1900hBlackKnob>(Vec(12, 49), module, RadioMusic::CHANNEL_PARAM));
 		addParam(createParam<Davies1900hBlackKnob>(Vec(12, 131), module, RadioMusic::START_PARAM));
 
 		addChild(createLight<MediumLight<RedLight>>(Vec(44, 188), module, RadioMusic::RESET_LIGHT));
-
-		//addParam(createParam<PB61303>(Vec(25, 202), module, RadioMusic::RESET_PARAM, 0, 1, 0));
 		addParam(createParam<PB61303>(Vec(25, 202), module, RadioMusic::RESET_PARAM));
 
 		addInput(createInput<PJ301MPort>(Vec(3, 274), module, RadioMusic::STATION_INPUT));

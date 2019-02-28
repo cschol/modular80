@@ -44,6 +44,15 @@ struct Nosering : Module {
 		_uniform(-10.0, 10.0)
 	{
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
+
+		//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 52), module, Nosering::INT_RATE_PARAM, 0, 14.0f, 0.0f));
+		params[INT_RATE_PARAM].config(0.0f, 14.0f, 0.0f, "Rate", " Hz");
+		//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 109), module, Nosering::CHANGE_PARAM, -10.0f, 10.0f, -10.0f));
+		params[CHANGE_PARAM].config(-10.0f, 10.0f, -10.0f, "Change");
+		//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 166), module, Nosering::CHANCE_PARAM, -10.0f, 10.0f, -10.0f));
+		params[CHANCE_PARAM].config(-10.0f, 10.0f, -10.0f, "Chance");
+		//addParam(createParam<CKSS>(Vec(60, 224), module, Nosering::INVERT_OLD_DATA_PARAM, 0.0f, 1.0f, 0.0f));
+		params[INVERT_OLD_DATA_PARAM].config(0.0f, 1.0f, 0.0f, "Invert Old Data");
 	}
 
 	void process(const ProcessArgs &args) override;
@@ -187,10 +196,6 @@ NoseringWidget::NoseringWidget(Nosering *module) {
 	addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
 	addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
 
-	//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 52), module, Nosering::INT_RATE_PARAM, 0, 14.0f, 0.0f));
-	//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 109), module, Nosering::CHANGE_PARAM, -10.0f, 10.0f, -10.0f));
-	//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 166), module, Nosering::CHANCE_PARAM, -10.0f, 10.0f, -10.0f));
-	//addParam(createParam<CKSS>(Vec(60, 224), module, Nosering::INVERT_OLD_DATA_PARAM, 0.0f, 1.0f, 0.0f));
 	addParam(createParam<Davies1900hBlackKnob>(Vec(49, 52), module, Nosering::INT_RATE_PARAM));
 	addParam(createParam<Davies1900hBlackKnob>(Vec(49, 109), module, Nosering::CHANGE_PARAM));
 	addParam(createParam<Davies1900hBlackKnob>(Vec(49, 166), module, Nosering::CHANCE_PARAM));

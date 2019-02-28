@@ -28,6 +28,15 @@ struct Logistiker : Module {
 		phase(0.0f)
 	{
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
+
+		//addParam(createParam<Davies1900hLargeBlackKnob>(Vec(18, 62), module, Logistiker::RATE_PARAM, -2.0f, 6.0f, 2.0f)); // 0.25..64
+		params[RATE_PARAM].config(-2.0f, 6.0f, 2.0f, "Rate", " Hz"); // 0.25..64 Hz
+		//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 140), module, Logistiker::R_PARAM, 0.0f, 8.0f, 3.56995f)); // default = onset of chaos
+		params[R_PARAM].config(0.0f, 8.0f, 3.56995f, "R"); // default value = onset of chaos
+		//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 206), module, Logistiker::X_PARAM, 0.0f, 0.5f, 0.0f));
+		params[X_PARAM].config(0.0f, 0.5f, 0.0f, "X");
+		//addParam(createParam<TL1105>(Vec(15, 217), module, Logistiker::RESET_PARAM, 0, 1, 0));
+		params[RESET_PARAM].config(0.0f, 1.0f, 0.0f, "Reset");
 	}
 
 	void process(const ProcessArgs &args) override;
@@ -117,16 +126,12 @@ LogistikerWidget::LogistikerWidget(Logistiker *module) {
 	addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
 	addChild(createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
 
-	//addParam(createParam<Davies1900hLargeBlackKnob>(Vec(18, 62), module, Logistiker::RATE_PARAM, -2.0f, 6.0f, 2.0f)); // 0.25..64
-	//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 140), module, Logistiker::R_PARAM, 0.0f, 8.0f, 3.56995f)); // default = onset of chaos
-	//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 206), module, Logistiker::X_PARAM, 0.0f, 0.5f, 0.0f));
 	addParam(createParam<Davies1900hLargeBlackKnob>(Vec(18, 62), module, Logistiker::RATE_PARAM));
 	addParam(createParam<Davies1900hBlackKnob>(Vec(49, 140), module, Logistiker::R_PARAM));
 	addParam(createParam<Davies1900hBlackKnob>(Vec(49, 206), module, Logistiker::X_PARAM));
 
 	addInput(createInput<PJ301MPort>(Vec(11, 146), module, Logistiker::R_INPUT));
 
-	//addParam(createParam<TL1105>(Vec(15, 217), module, Logistiker::RESET_PARAM, 0, 1, 0));
 	addParam(createParam<TL1105>(Vec(15, 217), module, Logistiker::RESET_PARAM));
 
 	addInput(createInput<PJ301MPort>(Vec(54, 276), module, Logistiker::CLK_INPUT));
