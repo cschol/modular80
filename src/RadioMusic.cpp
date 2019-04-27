@@ -827,7 +827,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 
 struct RadioMusicDirDialogItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const ActionEvent &e) override {
+	void onAction(const event::Action &e) override {
 
 		const std::string dir = \
 			rm->rootDir.empty() ? asset::user("") : rm->rootDir;
@@ -842,7 +842,7 @@ struct RadioMusicDirDialogItem : MenuItem {
 
 struct RadioMusicSelectBankItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const ActionEvent &e) override {
+	void onAction(const event::Action &e) override {
 		rm->selectBank = !rm->selectBank;
 
 		if (rm->selectBank == false) {
@@ -857,7 +857,7 @@ struct RadioMusicSelectBankItem : MenuItem {
 
 struct RadioMusicLoopingEnabledItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const ActionEvent &e) override {
+	void onAction(const event::Action &e) override {
 		rm->loopingEnabled = !rm->loopingEnabled;
 	}
 	void step() override {
@@ -867,7 +867,7 @@ struct RadioMusicLoopingEnabledItem : MenuItem {
 
 struct RadioMusicCrossfadeItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const ActionEvent &e) override {
+	void onAction(const event::Action &e) override {
 		rm->enableCrossfade = !rm->enableCrossfade;
 	}
 	void step() override {
@@ -877,7 +877,7 @@ struct RadioMusicCrossfadeItem : MenuItem {
 
 struct RadioMusicFileSortItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const ActionEvent &e) override {
+	void onAction(const event::Action &e) override {
 		rm->sortFiles = !rm->sortFiles;
 	}
 	void step() override {
@@ -887,7 +887,7 @@ struct RadioMusicFileSortItem : MenuItem {
 
 struct RadioMusicFilesAllowedItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const ActionEvent &e) override {
+	void onAction(const event::Action &e) override {
 		rm->allowAllFiles = !rm->allowAllFiles;
 	}
 	void step() override {
