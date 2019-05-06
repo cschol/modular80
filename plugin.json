@@ -13,19 +13,26 @@
             "slug": "Logistiker",
 			"name": "Logistiker",
             "description": "Chaotic CV generator based on Logistics equation",
-			"tags": ["Random"]
+			"tags": [
+                "Random"
+            ]
 		},
         {
             "slug": "Radio Music",
 			"name": "Radio Music",
             "description": "Radio Music is a sampler pretending to be a radio",
-			"tags": ["Sampler"]
+			"tags": [
+                "Sampler"
+            ]
 		},
         {
             "slug": "Nosering",
 			"name": "Nosering",
             "description": "Interpretation of Grant Richter's Noisering design",
-			"tags": ["Noise", "Random"]
+			"tags": [
+                "Noise",
+                "Random"
+            ]
 		}
 	]
 }
