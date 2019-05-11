@@ -50,7 +50,7 @@ void scan(std::string& root, const bool sort = false, const bool filter = true) 
 	std::vector<std::string> files;
 	std::list<std::string> entries;
 
-	entries = system::listEntries(root);
+	entries = system::getEntries(root);
 
 	if (sort) {
 		entries.sort();
