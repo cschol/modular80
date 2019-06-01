@@ -961,4 +961,4 @@ struct RadioMusicWidget : ModuleWidget {
 	}
 };
 
-Model *modelRadioMusic = createModel<RadioMusic, RadioMusicWidget>("Radio Music");
+Model *modelRadioMusic = createModel<RadioMusic, RadioMusicWidget>("RadioMusic");
