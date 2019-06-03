@@ -615,7 +615,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 	// Bank selection mode
 	if (selectBank) {
 		// Bank is selected via Reset button
-		if (rstButtonTrigger.process(params[RESET_PARAM].value)) {
+		if (rstButtonTrigger.process(params[RESET_PARAM].getValue())) {
 			currentBank++;
 			currentBank %= scanner.banks.size();
 		}
@@ -635,10 +635,10 @@ void RadioMusic::process(const ProcessArgs &args) {
 	}
 
 	// Start knob & input
-	const float start = clamp(params[START_PARAM].value + inputs[START_INPUT].value/5.0f, 0.0f, 1.0f);
+	const float start = clamp(params[START_PARAM].getValue() + inputs[START_INPUT].getVoltage()/5.0f, 0.0f, 1.0f);
 
-	if (ready && (rstButtonTrigger.process(params[RESET_PARAM].value) ||
-		(inputs[RESET_INPUT].isConnected() && rstInputTrigger.process(inputs[RESET_INPUT].value)))) {
+	if (ready && (rstButtonTrigger.process(params[RESET_PARAM].getValue()) ||
+		(inputs[RESET_INPUT].isConnected() && rstInputTrigger.process(inputs[RESET_INPUT].getVoltage())))) {
 
 		fadeOutGain = 1.0f;
 
@@ -652,7 +652,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 	}
 
 	// Channel knob & input
-	const float channel = clamp(params[CHANNEL_PARAM].value + inputs[STATION_INPUT].value/5.0f, 0.0f, 1.0f);
+	const float channel = clamp(params[CHANNEL_PARAM].getValue() + inputs[STATION_INPUT].getVoltage()/5.0f, 0.0f, 1.0f);
 	const int index = \
 		clamp(static_cast<int>(rescale(channel, 0.0f, 1.0f, 0.0f, static_cast<float>(objects.size()))),
 			0, objects.size() - 1);
@@ -808,7 +808,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 	// Output processing & metering
 	if (!outputBuffer.empty()) {
 		dsp::Frame<1> frame = outputBuffer.shift();
-		outputs[OUT_OUTPUT].value = frame.samples[0];
+		outputs[OUT_OUTPUT].setVoltage(frame.samples[0]);
 
 		// Disable VU Meter in Bank Selection mode.
 		if (!selectBank) {

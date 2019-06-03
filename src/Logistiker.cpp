@@ -74,8 +74,8 @@ void Logistiker::process(const ProcessArgs &args) {
 
 	static bool doReset(false);
 
-	if (rstButtonTrigger.process(params[RESET_PARAM].value) ||
-	   (inputs[RST_INPUT].isConnected() && rstInputTrigger.process(inputs[RST_INPUT].value)))
+	if (rstButtonTrigger.process(params[RESET_PARAM].getValue()) ||
+	   (inputs[RST_INPUT].isConnected() && rstInputTrigger.process(inputs[RST_INPUT].getVoltage())))
 	{
 		doReset = true;
 	}
@@ -84,14 +84,14 @@ void Logistiker::process(const ProcessArgs &args) {
 
 	// External clock
 	if (inputs[CLK_INPUT].isConnected()) {
-		if (clkTrigger.process(inputs[CLK_INPUT].value)) {
+		if (clkTrigger.process(inputs[CLK_INPUT].getVoltage())) {
 			phase = 0.0f;
 			doStep = true;
 		}
 	}
 	else {
 		// Internal clock
-		phase += pow(2.0f, params[RATE_PARAM].value)/APP->engine->getSampleRate();
+		phase += pow(2.0f, params[RATE_PARAM].getValue())/APP->engine->getSampleRate();
 		if (phase >= 1.0f) {
 			phase = 0.0f;
 			doStep = true;
@@ -102,17 +102,17 @@ void Logistiker::process(const ProcessArgs &args) {
 
 		// Synchronize resetting x with steps.
 		if (doReset) {
-			x = params[X_PARAM].value;
+			x = params[X_PARAM].getValue();
 			doReset = false;
 		}
 
-		const float r = clamp(params[R_PARAM].value + inputs[R_INPUT].value, 0.0f, 8.0f);
+		const float r = clamp(params[R_PARAM].getValue() + inputs[R_INPUT].getVoltage(), 0.0f, 8.0f);
 
 		// Don't let population die!
 		x = clamp(logistic(x, r), 0.00001f, 1.0f);
 	}
 
-	outputs[X_OUTPUT].value = clamp(x * 10.0f, -10.0f, 10.0f);
+	outputs[X_OUTPUT].setVoltage(clamp(x * 10.0f, -10.0f, 10.0f));
 }
 
 struct LogistikerWidget : ModuleWidget {

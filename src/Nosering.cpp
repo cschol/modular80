@@ -90,8 +90,8 @@ void Nosering::process(const ProcessArgs &args) {
 	bool doStep(false);
 
 	// Inputs
-	const float change = clamp((params[CHANGE_PARAM].value + inputs[CHANGE_INPUT].value), -10.0f, 10.0f);
-	const float chance = clamp((params[CHANCE_PARAM].value + inputs[CHANCE_INPUT].value), -10.0f, 10.0f);
+	const float change = clamp((params[CHANGE_PARAM].getValue() + inputs[CHANGE_INPUT].getVoltage()), -10.0f, 10.0f);
+	const float chance = clamp((params[CHANCE_PARAM].getValue() + inputs[CHANCE_INPUT].getVoltage()), -10.0f, 10.0f);
 
 	// Generate White noise sample
 	const float noiseSample = clamp(_uniform(_generator), -10.0f, 10.0f);
@@ -99,20 +99,20 @@ void Nosering::process(const ProcessArgs &args) {
 	// Either use Chance input to sample data for Chance comparator or White Noise.
 	float sample(0.0f);
 	if (inputs[EXT_CHANCE_INPUT].isConnected()) {
-		sample = inputs[EXT_CHANCE_INPUT].value;
+		sample = inputs[EXT_CHANCE_INPUT].getVoltage();
 	} else {
 		sample = noiseSample;
 	}
 
 	// External clock
 	if (inputs[EXT_RATE_INPUT].isConnected()) {
-		if (clkTrigger.process(inputs[EXT_RATE_INPUT].value)) {
+		if (clkTrigger.process(inputs[EXT_RATE_INPUT].getVoltage())) {
 			phase = 0.0f;
 			doStep = true;
 		}
 	}
 	else { // Internal clock
-		float freq = powf(2.0f, params[INT_RATE_PARAM].value);
+		float freq = powf(2.0f, params[INT_RATE_PARAM].getValue());
 
 		// Limit internal rate.
 		if (freq > MAX_FREQ) {
@@ -132,8 +132,8 @@ void Nosering::process(const ProcessArgs &args) {
 		unsigned int newData = (sample > chance) ? 0 : 1;
 		unsigned int oldData = shiftRegister[SR_SIZE - 1];
 
-		const bool invertOldData = (params[INVERT_OLD_DATA_PARAM].value != 0.0f) ||
-								   (inputs[INV_OUT_INPUT].value != 0.0f);
+		const bool invertOldData = (params[INVERT_OLD_DATA_PARAM].getValue() != 0.0f) ||
+								   (inputs[INV_OUT_INPUT].getVoltage() != 0.0f);
 		if (invertOldData) {
 			oldData = (oldData == 1) ? 0 : 1;
 		}
@@ -180,9 +180,9 @@ void Nosering::process(const ProcessArgs &args) {
 	}
 
 	// Outputs
-	outputs[N_PLUS_1_OUTPUT].value = clamp(nPlus1Output, 0.0f, 10.0f);
-	outputs[TWO_POW_N_OUTPUT].value = clamp(TwoPowNOutput, 0.0f, 10.0f);
-	outputs[NOISE_OUTPUT].value = noiseSample;
+	outputs[N_PLUS_1_OUTPUT].setVoltage(clamp(nPlus1Output, 0.0f, 10.0f));
+	outputs[TWO_POW_N_OUTPUT].setVoltage(clamp(TwoPowNOutput, 0.0f, 10.0f));
+	outputs[NOISE_OUTPUT].setVoltage(noiseSample);
 }
 
 struct NoseringWidget : ModuleWidget {
