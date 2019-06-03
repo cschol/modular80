@@ -68,14 +68,14 @@ float Logistiker::logistic(const float x, const float r) {
 }
 
 void Logistiker::process(const ProcessArgs &args) {
-	if (!outputs[X_OUTPUT].active) {
+	if (!outputs[X_OUTPUT].isConnected()) {
 		return;
 	}
 
 	static bool doReset(false);
 
 	if (rstButtonTrigger.process(params[RESET_PARAM].value) ||
-	   (inputs[RST_INPUT].active && rstInputTrigger.process(inputs[RST_INPUT].value)))
+	   (inputs[RST_INPUT].isConnected() && rstInputTrigger.process(inputs[RST_INPUT].value)))
 	{
 		doReset = true;
 	}
@@ -83,7 +83,7 @@ void Logistiker::process(const ProcessArgs &args) {
 	bool doStep(false);
 
 	// External clock
-	if (inputs[CLK_INPUT].active) {
+	if (inputs[CLK_INPUT].isConnected()) {
 		if (clkTrigger.process(inputs[CLK_INPUT].value)) {
 			phase = 0.0f;
 			doStep = true;

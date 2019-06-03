@@ -638,7 +638,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 	const float start = clamp(params[START_PARAM].value + inputs[START_INPUT].value/5.0f, 0.0f, 1.0f);
 
 	if (ready && (rstButtonTrigger.process(params[RESET_PARAM].value) ||
-		(inputs[RESET_INPUT].active && rstInputTrigger.process(inputs[RESET_INPUT].value)))) {
+		(inputs[RESET_INPUT].isConnected() && rstInputTrigger.process(inputs[RESET_INPUT].value)))) {
 
 		fadeOutGain = 1.0f;
 

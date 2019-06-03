@@ -98,14 +98,14 @@ void Nosering::process(const ProcessArgs &args) {
 
 	// Either use Chance input to sample data for Chance comparator or White Noise.
 	float sample(0.0f);
-	if (inputs[EXT_CHANCE_INPUT].active) {
+	if (inputs[EXT_CHANCE_INPUT].isConnected()) {
 		sample = inputs[EXT_CHANCE_INPUT].value;
 	} else {
 		sample = noiseSample;
 	}
 
 	// External clock
-	if (inputs[EXT_RATE_INPUT].active) {
+	if (inputs[EXT_RATE_INPUT].isConnected()) {
 		if (clkTrigger.process(inputs[EXT_RATE_INPUT].value)) {
 			phase = 0.0f;
 			doStep = true;
