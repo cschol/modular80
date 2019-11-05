@@ -2,7 +2,7 @@
 	"slug": "modular80",
 	"name": "modular80",
 	"author": "cschol",
-	"license": "BSD-3-Clause",
+	"license": "GPL-3.0-or-later",
 	"authorEmail": "modular80@gmail.com",
 	"pluginUrl": "https://github.com/cschol/modular80/blob/master/README.md",
 	"manualUrl": "https://github.com/cschol/modular80/blob/master/README.md",

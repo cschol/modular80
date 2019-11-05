@@ -90,17 +90,12 @@ A collection of sample packs to load can be found on Tom Whitwell's [GitHub page
 - `Bank Selection Mode` is accessed via the context menu (instead of pressing and holding the reset button).
 - Implemented options are available via the context menu (instead of a settings file).
 
-### Additional information and resources
-
-All hardware and software design in the original `Radio Music` project is Creative Commons licensed by Tom Whitwell:
-[CC-BY-SA: Attribution / ShareAlike](https://creativecommons.org/licenses/by-sa/3.0/).
-
-The source code for the `Radio Music` Rack module is also licensed under the same Creative Commons license by myself.
-
 # Licenses
 
-`Logistiker` and `Nosering` module source code licensed under BSD-3-Clause by Christoph Scholtes.
+All source code in this repository is copyright © 2019 Christoph Scholtes and is licensed under the [GNU General Public License v3.0](LICENSE).
+All **graphics** for `Logistiker` and `Nosering` in the `res` directory are copyright © 2019 Christoph Scholtes and licensed under [CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/4.0/).
 
-`Radio Music` Rack module source code licensed under [CC-BY-SA: Attribution / ShareAlike](https://creativecommons.org/licenses/by-sa/3.0/) by Christoph Scholtes.
+All `Radio Music` hardware and software design in the original project is Creative Commons licensed by Tom Whitwell:
+[CC-BY-SA: Attribution / ShareAlike](https://creativecommons.org/licenses/by-sa/3.0/).
 
 [`dr_wav`](https://mackron.github.io/dr_wav) source code is placed into public domain by the author.
