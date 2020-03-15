@@ -46,7 +46,7 @@ old data is recycled in the shift register, i.e. the shift register content is l
 The corresponding input provides CV contol of the **CHANGE** parameter.
 
 The **CHANCE** knob controls the probability of introducing either a **0** (all the way CCW) or
-a **1** (all the way CW) into the system. The corresponding input provides CV contol of the **CHANCE** parameter.
+a **1** (all the way CW) into the system. The corresponding input provides CV control of the **CHANCE** parameter.
 
 The **INV OLD** switch will cause the last bit pushed out of the shift register to be **inverted**
 before feeding it back into the shift register input. The corresponding input provides CV control over
