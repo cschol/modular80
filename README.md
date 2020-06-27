@@ -90,6 +90,15 @@ A collection of sample packs to load can be found on Tom Whitwell's [GitHub page
 - `Bank Selection Mode` is accessed via the context menu (instead of pressing and holding the reset button).
 - Implemented options are available via the context menu (instead of a settings file).
 
+# Build instructions
+
+Set up build environment by either compiling from within the `plugin` directory or using the `RACK_DIR` environment variable.
+
+```
+git submodule update --init --recursive
+make
+```
+
 # Licenses
 
 All source code in this repository is copyright © 2019 Christoph Scholtes and is licensed under the [GNU General Public License v3.0](LICENSE).
