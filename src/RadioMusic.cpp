@@ -160,10 +160,14 @@ WavAudioObject() : AudioObject() {
 };
 
 bool load(const std::string &path) override {
+	drwav_uint64 totalFrames(0);
+
 	filePath = path;
 	samples = drwav_open_file_and_read_pcm_frames_f32(
-		filePath.c_str(), &channels, &sampleRate, &totalSamples, nullptr
+		filePath.c_str(), &channels, &sampleRate, &totalFrames, nullptr
 	);
+
+	totalSamples = totalFrames * channels;
 
 	if (samples) {
 		for (size_t i = 0; i < totalSamples; ++i) {
@@ -253,9 +257,8 @@ float play(unsigned int channel) {
 
 	if (audio) {
 		if (channel < audio->channels) {
-			if  (audio->currentPos < (audio->totalSamples/audio->channels) ||
-			   ((audio->currentPos + channel) < audio->totalSamples)) {
-				sample = audio->samples[channel + audio->currentPos];
+			if ((audio->currentPos + channel) < audio->totalSamples) {
+				sample = audio->samples[audio->currentPos + channel];
 			}
 		}
 	}
@@ -266,7 +269,7 @@ float play(unsigned int channel) {
 void advance(bool repeat = false) {
 	if (audio) {
 		const unsigned long nextPos = audio->currentPos + audio->channels;
-		const unsigned long maxPos = audio->totalSamples/audio->channels;
+		const unsigned long maxPos = audio->totalSamples;
 		if (nextPos >= maxPos) {
 			if (repeat) {
 				audio->currentPos = startPos;
