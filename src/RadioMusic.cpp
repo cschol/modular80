@@ -345,11 +345,8 @@ struct RadioMusic : Module {
 	{
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
-		//addParam(createParam<Davies1900hBlackKnob>(Vec(12, 49), module, RadioMusic::CHANNEL_PARAM, 0.0f, 1.0f, 0.0f));
 		configParam(CHANNEL_PARAM, 0.0f, 1.0f, 0.0f, "Channel");
-		//addParam(createParam<Davies1900hBlackKnob>(Vec(12, 131), module, RadioMusic::START_PARAM, 0.0f, 1.0f, 0.0f));
 		configParam(START_PARAM, 0.0f, 1.0f, 0.0f, "Start");
-		//addParam(createParam<PB61303>(Vec(25, 202), module, RadioMusic::RESET_PARAM, 0, 1, 0));
 		configParam(RESET_PARAM, 0.0f, 1.0f, 0.0f, "Reset");
 
 		currentPlayer = &audioPlayer1;
