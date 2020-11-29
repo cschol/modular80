@@ -155,14 +155,14 @@ WavAudioObject() : AudioObject() {
 };
 ~WavAudioObject() {
 	if (samples) {
-		drwav_free(samples);
+		drwav_free(samples, nullptr);
 	}
 };
 
 bool load(const std::string &path) override {
 	filePath = path;
-	samples = drwav_open_and_read_file_f32(
-		filePath.c_str(), &channels, &sampleRate, &totalSamples
+	samples = drwav_open_file_and_read_pcm_frames_f32(
+		filePath.c_str(), &channels, &sampleRate, &totalSamples, nullptr
 	);
 
 	if (samples) {
@@ -556,7 +556,7 @@ void RadioMusic::threadedLoad() {
 
 		// Quickly determine file type
 		drwav wav;
-		if (drwav_init_file(&wav, files[i].c_str())) {
+		if (drwav_init_file(&wav, files[i].c_str(), nullptr)) {
 			object = std::make_shared<WavAudioObject>();
 		} else {
 			object = std::make_shared<RawAudioObject>();
