@@ -1,3 +1,7 @@
+### 1.0.3 (2021-05-13)
+
+- Fix crash when loading RAW files
+
 ### 1.0.2 (2020-11-29)
 
 - Fix WAV file playback
