@@ -554,14 +554,16 @@ void RadioMusic::threadedLoad() {
 	for (unsigned int i = 0; i < files.size(); ++i) {
 		std::shared_ptr<AudioObject> object;
 
-		// Quickly determine file type
+		// Quickly determine if file is WAV file
 		drwav wav;
 		if (drwav_init_file(&wav, files[i].c_str(), nullptr)) {
 			object = std::make_shared<WavAudioObject>();
-		} else {
+			if (drwav_uninit(&wav) != DRWAV_SUCCESS) {
+				FATAL("Failed to uninitialize object %d %s", i, files[i].c_str());
+			}
+		} else { // if load fails, interpret as raw audio
 			object = std::make_shared<RawAudioObject>();
 		}
-		drwav_uninit(&wav);
 
 		// Actually load files
 		if (object->load(files[i])) {
