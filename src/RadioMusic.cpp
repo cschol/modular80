@@ -938,7 +938,14 @@ struct RadioMusicWidget : ModuleWidget {
 		menu->addChild(new MenuEntry);
 
 		RadioMusicDirDialogItem *rootDirItem = new RadioMusicDirDialogItem;
-		rootDirItem->text = "Set Root Directory";
+		std::stringstream rootDirText, rootDir;
+		if (module->rootDir.empty()) {
+			rootDir << "<No root directory selected. Click to select.>";
+		} else {
+			rootDir << module->rootDir;
+		}
+		rootDirText << "Root Directory: " << rootDir.str();
+		rootDirItem->text = rootDirText.str();
 		rootDirItem->rm = module;
 		menu->addChild(rootDirItem);
 
