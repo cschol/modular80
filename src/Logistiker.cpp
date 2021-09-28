@@ -29,14 +29,16 @@ struct Logistiker : Module {
 	{
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
-		//addParam(createParam<Davies1900hLargeBlackKnob>(Vec(18, 62), module, Logistiker::RATE_PARAM, -2.0f, 6.0f, 2.0f)); // 0.25..64
 		configParam(RATE_PARAM, -2.0f, 6.0f, 2.0f, "Rate", " Hz"); // 0.25..64 Hz
-		//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 140), module, Logistiker::R_PARAM, 0.0f, 8.0f, 3.56995f)); // default = onset of chaos
 		configParam(R_PARAM, 0.0f, 8.0f, 3.56995f, "R"); // default value = onset of chaos
-		//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 206), module, Logistiker::X_PARAM, 0.0f, 0.5f, 0.0f));
 		configParam(X_PARAM, 0.0f, 0.5f, 0.0f, "X");
-		//addParam(createParam<TL1105>(Vec(15, 217), module, Logistiker::RESET_PARAM, 0, 1, 0));
-		configParam(RESET_PARAM, 0.0f, 1.0f, 0.0f, "Reset");
+		configButton(RESET_PARAM, "Reset");
+
+		configInput(CLK_INPUT, "Clock");
+		configInput(RST_INPUT, "Reset");
+		configInput(R_INPUT, "R");
+
+		configOutput(X_OUTPUT, "X");
 	}
 
 	void process(const ProcessArgs &args) override;

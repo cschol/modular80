@@ -45,14 +45,20 @@ struct Nosering : Module {
 	{
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
-		//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 52), module, Nosering::INT_RATE_PARAM, 0, 14.0f, 0.0f));
-		configParam(INT_RATE_PARAM, 0.0f, 14.0f, 0.0f, "Rate", " Hz");
-		//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 109), module, Nosering::CHANGE_PARAM, -10.0f, 10.0f, -10.0f));
+		configParam(INT_RATE_PARAM, 0.0f, 14.0f, 0.0f, "Clock Rate", " Hz");
 		configParam(CHANGE_PARAM, -10.0f, 10.0f, -10.0f, "Change");
-		//addParam(createParam<Davies1900hBlackKnob>(Vec(49, 166), module, Nosering::CHANCE_PARAM, -10.0f, 10.0f, -10.0f));
 		configParam(CHANCE_PARAM, -10.0f, 10.0f, -10.0f, "Chance");
-		//addParam(createParam<CKSS>(Vec(60, 224), module, Nosering::INVERT_OLD_DATA_PARAM, 0.0f, 1.0f, 0.0f));
-		configParam(INVERT_OLD_DATA_PARAM, 0.0f, 1.0f, 0.0f, "Invert Old Data");
+		configSwitch(INVERT_OLD_DATA_PARAM, 0.0f, 1.0f, 0.0f, "Invert Old Data", {"Normal", "Inverted"});
+
+		configInput(CHANGE_INPUT, "Change");
+		configInput(CHANCE_INPUT, "Chance");
+		configInput(EXT_RATE_INPUT, "External Clock Rate");
+		configInput(EXT_CHANCE_INPUT, "External Chance");
+		configInput(INV_OUT_INPUT, "Invert Old Data");
+
+		configOutput(N_PLUS_1_OUTPUT, "n+1");
+		configOutput(TWO_POW_N_OUTPUT, "2^n");
+		configOutput(NOISE_OUTPUT, "Noise");
 	}
 
 	void process(const ProcessArgs &args) override;

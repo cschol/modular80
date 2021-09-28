@@ -48,12 +48,12 @@ static bool isSupportedAudioFormat(std::string& path) {
 void scan(std::string& root, const bool sort = false, const bool filter = true) {
 
 	std::vector<std::string> files;
-	std::list<std::string> entries;
+	std::vector<std::string> entries;
 
 	entries = system::getEntries(root);
 
 	if (sort) {
-		entries.sort();
+        std::sort(entries.begin(), entries.end());
 	}
 
 	for (std::string &entry : entries) {
@@ -317,7 +317,7 @@ long startPos;
 
 struct RadioMusic : Module {
 	enum ParamIds {
-		CHANNEL_PARAM,
+		STATION_PARAM,
 		START_PARAM,
 		RESET_PARAM,
 		NUM_PARAMS
@@ -345,9 +345,17 @@ struct RadioMusic : Module {
 	{
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
-		configParam(CHANNEL_PARAM, 0.0f, 1.0f, 0.0f, "Channel");
+		configParam(STATION_PARAM, 0.0f, 1.0f, 0.0f, "Station");
 		configParam(START_PARAM, 0.0f, 1.0f, 0.0f, "Start");
-		configParam(RESET_PARAM, 0.0f, 1.0f, 0.0f, "Reset");
+		configButton(RESET_PARAM, "Reset");
+
+		configInput(STATION_INPUT, "Station");
+		configInput(START_INPUT, "Start");
+		configInput(RESET_INPUT, "Reset");
+
+		configOutput(OUT_OUTPUT, "Output");
+
+		configLight(RESET_LIGHT, "Reset");
 
 		currentPlayer = &audioPlayer1;
 		previousPlayer = &audioPlayer2;
@@ -654,7 +662,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 	}
 
 	// Channel knob & input
-	const float channel = clamp(params[CHANNEL_PARAM].getValue() + inputs[STATION_INPUT].getVoltage()/5.0f, 0.0f, 1.0f);
+	const float channel = clamp(params[STATION_PARAM].getValue() + inputs[STATION_INPUT].getVoltage()/5.0f, 0.0f, 1.0f);
 	const int index = \
 		clamp(static_cast<int>(rescale(channel, 0.0f, 1.0f, 0.0f, static_cast<float>(objects.size()))),
 			0, objects.size() - 1);
@@ -909,7 +917,7 @@ struct RadioMusicWidget : ModuleWidget {
 		addChild(createLight<MediumLight<RedLight>>(Vec(32, 33), module, RadioMusic::LED_2_LIGHT));
 		addChild(createLight<MediumLight<RedLight>>(Vec(45, 33), module, RadioMusic::LED_3_LIGHT));
 
-		addParam(createParam<Davies1900hBlackKnob>(Vec(12, 49), module, RadioMusic::CHANNEL_PARAM));
+		addParam(createParam<Davies1900hBlackKnob>(Vec(12, 49), module, RadioMusic::STATION_PARAM));
 		addParam(createParam<Davies1900hBlackKnob>(Vec(12, 131), module, RadioMusic::START_PARAM));
 
 		addChild(createLight<MediumLight<RedLight>>(Vec(44, 188), module, RadioMusic::RESET_LIGHT));

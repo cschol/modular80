@@ -3,7 +3,7 @@
 This repository contains a collection of modules for [VCV Rack](https://vcvrack.com/),
 the open-source virtual modular synthesizer.
 
-The minimum supported VCV Rack version is **1.0.x**.
+The minimum supported VCV Rack version is **2.0.0**.
 
 # Overview of modules
 
@@ -102,7 +102,7 @@ make
 # Licenses
 
 All source code in this repository is copyright © 2021 Christoph Scholtes and is licensed under the [GNU General Public License v3.0](LICENSE).
-All **graphics** for `Logistiker` and `Nosering` in the `res` directory are copyright © 2020 Christoph Scholtes and licensed under [CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/4.0/).
+All **graphics** for `Logistiker` and `Nosering` in the `res` directory are copyright © 2021 Christoph Scholtes and licensed under [CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/4.0/).
 
 All `Radio Music` hardware and software design in the original project is Creative Commons licensed by Tom Whitwell:
 [CC-BY-SA: Attribution / ShareAlike](https://creativecommons.org/licenses/by-sa/3.0/).
