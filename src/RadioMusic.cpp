@@ -238,12 +238,15 @@ class AudioPlayer {
 
 public:
 AudioPlayer() :
-  startPos(0)
+  startPos(0),
+  sampleRateSpeed(1.0f),
+  playbackSpeed(1.0f)
 {};
 ~AudioPlayer() {};
 
 void load(std::shared_ptr<AudioObject> object) {
 	audio = std::move(object);
+	sampleRateSpeed = static_cast<float>(audio->sampleRate)/44100.0f;
 }
 
 void skipTo(unsigned long pos) {
@@ -252,13 +255,18 @@ void skipTo(unsigned long pos) {
 	}
 }
 
-float play(unsigned int channel) {
+float play(unsigned int channel, bool pitchMode) {
 	float sample(0.0f);
 
 	if (audio) {
 		if (channel < audio->channels) {
 			if ((audio->currentPos + channel) < audio->totalSamples) {
-				sample = audio->samples[audio->currentPos + channel];
+				if (pitchMode) {
+					const float speed = sampleRateSpeed * playbackSpeed;
+					sample = audio->samples[static_cast<unsigned long>(speed * static_cast<float>(audio->currentPos)) + channel];
+				} else {
+					sample = audio->samples[audio->currentPos + channel];
+				}
 			}
 		}
 	}
@@ -268,8 +276,9 @@ float play(unsigned int channel) {
 
 void advance(bool repeat = false) {
 	if (audio) {
+
 		const unsigned long nextPos = audio->currentPos + audio->channels;
-		const unsigned long maxPos = audio->totalSamples;
+		unsigned long const	maxPos = audio->totalSamples;
 		if (nextPos >= maxPos) {
 			if (repeat) {
 				audio->currentPos = startPos;
@@ -303,6 +312,10 @@ void reset() {
 	}
 }
 
+void setPlaybackSpeed(const float speed) {
+	playbackSpeed = speed;
+}
+
 std::shared_ptr<AudioObject> object() {
 	return audio;
 }
@@ -310,7 +323,9 @@ std::shared_ptr<AudioObject> object() {
 private:
 
 std::shared_ptr<AudioObject> audio;
-long startPos;
+unsigned long startPos;
+float sampleRateSpeed;
+float playbackSpeed;
 
 };
 
@@ -380,6 +395,7 @@ struct RadioMusic : Module {
 	bool selectBank;
 
 	// Settings
+	bool pitchMode;
 	bool loopingEnabled;
 	bool enableCrossfade;
 	bool sortFiles;
@@ -387,6 +403,10 @@ struct RadioMusic : Module {
 
 	json_t *dataToJson() override {
 		json_t *rootJ = json_object();
+
+		// Option: Loop Samples
+		json_t *pitchModeJ = json_boolean(pitchMode);
+		json_object_set_new(rootJ, "pitchMode", pitchModeJ);
 
 		// Option: Loop Samples
 		json_t *loopingJ = json_boolean(loopingEnabled);
@@ -416,6 +436,10 @@ struct RadioMusic : Module {
 	}
 
 	void dataFromJson(json_t *rootJ) override {
+		// Option: Pitch Mode
+		json_t *pitchModeJ = json_object_get(rootJ, "pitchMode");
+		if (pitchModeJ) pitchMode = json_boolean_value(pitchModeJ);
+
 		// Option: Loop Samples
 		json_t *loopingJ = json_object_get(rootJ, "loopingEnabled");
 		if (loopingJ) loopingEnabled = json_boolean_value(loopingJ);
@@ -504,6 +528,7 @@ void RadioMusic::init() {
 	xfadeGain2 = 1.0f;
 
 	// Settings
+	pitchMode = false;
 	loopingEnabled = true;
 	enableCrossfade = true;
 	sortFiles = false;
@@ -645,7 +670,20 @@ void RadioMusic::process(const ProcessArgs &args) {
 	}
 
 	// Start knob & input
-	const float start = clamp(params[START_PARAM].getValue() + inputs[START_INPUT].getVoltage()/5.0f, 0.0f, 1.0f);
+	float start(0.0f);
+	if (!pitchMode) {
+		start = clamp(params[START_PARAM].getValue() + inputs[START_INPUT].getVoltage()/5.0f, 0.0f, 1.0f);
+	} else { // Pitch mode
+		const float speed = clamp(params[START_PARAM].getValue() + inputs[START_INPUT].getVoltage()/5.0f, 0.0f, 1.0f);
+		const float range = 4.0f;
+		float scaledSpeed = pow(2.0f, range*speed - range*0.5f);
+		static float prevSpeed(1.0f);
+		if (fabs(prevSpeed - scaledSpeed) > 0.05) {
+			fadeout = true;
+			prevSpeed = scaledSpeed;
+		}
+		currentPlayer->setPlaybackSpeed(scaledSpeed);
+	}
 
 	if (ready && (rstButtonTrigger.process(params[RESET_PARAM].getValue()) ||
 		(inputs[RESET_INPUT].isConnected() && rstInputTrigger.process(inputs[RESET_INPUT].getVoltage())))) {
@@ -667,9 +705,9 @@ void RadioMusic::process(const ProcessArgs &args) {
 		clamp(static_cast<int>(rescale(channel, 0.0f, 1.0f, 0.0f, static_cast<float>(objects.size()))),
 			0, objects.size() - 1);
 
-
 	// Channel switch detection
 	if (ready && index != prevIndex) {
+
 		AudioPlayer *tmp;
 		tmp = previousPlayer;
 		previousPlayer = currentPlayer;
@@ -678,11 +716,14 @@ void RadioMusic::process(const ProcessArgs &args) {
 		if (index < (int)objects.size()) {
 			currentPlayer->load(objects[index]);
 
-			unsigned long pos = objects[index]->currentPos + \
-				(currentPlayer->object()->channels * elapsedMs * objects[index]->sampleRate) / 1000;
-			pos = pos % (objects[index]->totalSamples / objects[index]->channels);
-
-			currentPlayer->skipTo(pos);
+			if (!pitchMode) {
+				unsigned long pos = objects[index]->currentPos + \
+					(currentPlayer->object()->channels * elapsedMs * objects[index]->sampleRate) / 1000;
+				pos = pos % (objects[index]->totalSamples / objects[index]->channels);
+				currentPlayer->skipTo(pos);
+			} else {
+				currentPlayer->skipTo(0);
+			}
 
 			elapsedMs = 0;
 		}
@@ -746,8 +787,8 @@ void RadioMusic::process(const ProcessArgs &args) {
 				xfadeGain2 = rack::crossfade(xfadeGain2, 0.0f, 0.005); // 0.005 = ~25ms
 
 				for (size_t channel = 0; channel < currentPlayer->object()->channels; channel++) {
-					const float currSample = currentPlayer->play(channel);
-					const float prevSample = previousPlayer->play(channel);
+					const float currSample = currentPlayer->play(channel, pitchMode);
+					const float prevSample = previousPlayer->play(channel, pitchMode);
 					const float out = currSample * xfadeGain1 + prevSample * xfadeGain2;
 
 					output += 5.0f * out / currentPlayer->object()->peak;
@@ -769,7 +810,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 				fadeOutGain = rack::crossfade(fadeOutGain, 0.0f, 0.05); // 0.05 = ~5ms
 
 				for (size_t channel = 0; channel < currentPlayer->object()->channels; channel++) {
-					const float sample = currentPlayer->play(channel);
+					const float sample = currentPlayer->play(channel, pitchMode);
 					const float out = sample * fadeOutGain;
 
 					output += 5.0f * out / currentPlayer->object()->peak;
@@ -788,7 +829,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 			else // No fading
 			{
 				for (size_t channel = 0; channel < currentPlayer->object()->channels; channel++) {
-					const float out = currentPlayer->play(channel);
+					const float out = currentPlayer->play(channel, pitchMode);
 
 					output += 5.0f * out / currentPlayer->object()->peak;
 				}
@@ -862,6 +903,16 @@ struct RadioMusicSelectBankItem : MenuItem {
 	void step() override {
 		text = (rm->selectBank != true) ? "Enter Bank Select Mode" : "Exit Bank Select Mode";
 		rightText = CHECKMARK(rm->selectBank);
+	}
+};
+
+struct RadioMusicPitchModeItem : MenuItem {
+	RadioMusic *rm;
+	void onAction(const event::Action &e) override {
+		rm->pitchMode = !rm->pitchMode;
+	}
+	void step() override {
+		rightText = CHECKMARK(rm->pitchMode);
 	}
 };
 
@@ -955,6 +1006,11 @@ struct RadioMusicWidget : ModuleWidget {
 		menu->addChild(selectBankItem);
 
 		menu->addChild(new MenuEntry);
+
+		RadioMusicPitchModeItem *pitchModeItem = new RadioMusicPitchModeItem;
+		pitchModeItem->text = "Enable Pitch Mode";
+		pitchModeItem->rm = module;
+		menu->addChild(pitchModeItem);
 
 		RadioMusicLoopingEnabledItem *loopingEnabledItem = new RadioMusicLoopingEnabledItem;
 		loopingEnabledItem->text = "Enable Looping";

@@ -83,6 +83,7 @@ A collection of sample packs to load can be found on Tom Whitwell's [GitHub page
 
 - Playback of `.raw` (44.1 kHz, 16 bit, headerless PCM) and `.wav` files (all formats)
 - Supports up to 16 banks (subfolders) with a maximum bank size of 2GB per bank
+- New in v2.0.0: Pitch Mode
 
 ### Notable differences to hardware version
 
