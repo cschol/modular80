@@ -122,7 +122,7 @@ public:
 
 AudioObject() :
   filePath(),
-  currentPos(0),
+  currentPos(0.0f),
   channels(0),
   sampleRate(0),
   bytesPerSample(2),
@@ -135,7 +135,7 @@ virtual ~AudioObject() {};
 virtual bool load(const std::string &path) = 0;
 
 std::string filePath;
-unsigned long currentPos;
+float currentPos;
 unsigned int channels;
 unsigned int sampleRate;
 unsigned int bytesPerSample;
@@ -238,7 +238,7 @@ class AudioPlayer {
 
 public:
 AudioPlayer() :
-  startPos(0),
+  startPos(0.0f),
   sampleRateSpeed(1.0f),
   playbackSpeed(1.0f)
 {};
@@ -246,27 +246,26 @@ AudioPlayer() :
 
 void load(std::shared_ptr<AudioObject> object) {
 	audio = std::move(object);
-	sampleRateSpeed = static_cast<float>(audio->sampleRate)/44100.0f;
+	//sampleRateSpeed = static_cast<float>(audio->sampleRate)/44100.0f;
 }
 
-void skipTo(unsigned long pos) {
+void skipTo(float pos) {
 	if (audio) {
 		audio->currentPos = pos;
 	}
 }
 
-float play(unsigned int channel, bool pitchMode) {
+float play(unsigned int channel) {
 	float sample(0.0f);
 
 	if (audio) {
 		if (channel < audio->channels) {
 			if ((audio->currentPos + channel) < audio->totalSamples) {
-				if (pitchMode) {
-					const float speed = sampleRateSpeed * playbackSpeed;
-					sample = audio->samples[static_cast<unsigned long>(speed * static_cast<float>(audio->currentPos)) + channel];
-				} else {
-					sample = audio->samples[audio->currentPos + channel];
-				}
+				const unsigned int pos = static_cast<int>(audio->currentPos + channel);
+				const float delta = (audio->currentPos + channel) - pos;
+				sample = crossfade(audio->samples[pos],
+								   audio->samples[std::min(pos+1, (unsigned int)audio->totalSamples-1)],
+								   delta);
 			}
 		}
 	}
@@ -274,11 +273,18 @@ float play(unsigned int channel, bool pitchMode) {
 	return sample;
 }
 
-void advance(bool repeat = false) {
+void advance(bool repeat, bool pitchMode) {
 	if (audio) {
 
-		const unsigned long nextPos = audio->currentPos + audio->channels;
-		unsigned long const	maxPos = audio->totalSamples;
+		float nextPos;
+		if (pitchMode) {
+			const float speed = sampleRateSpeed * playbackSpeed;
+			nextPos = audio->currentPos + speed * static_cast<float>(audio->channels);
+		} else {
+			nextPos = audio->currentPos + audio->channels;
+		}
+
+		float const	maxPos = static_cast<float>(audio->totalSamples);
 		if (nextPos >= maxPos) {
 			if (repeat) {
 				audio->currentPos = startPos;
@@ -291,7 +297,7 @@ void advance(bool repeat = false) {
 	}
 }
 
-void resetTo(unsigned long pos) {
+void resetTo(float pos) {
 	if (audio) {
 		startPos = pos;
 		audio->currentPos = startPos;
@@ -323,7 +329,7 @@ std::shared_ptr<AudioObject> object() {
 private:
 
 std::shared_ptr<AudioObject> audio;
-unsigned long startPos;
+float startPos;
 float sampleRateSpeed;
 float playbackSpeed;
 
@@ -677,11 +683,6 @@ void RadioMusic::process(const ProcessArgs &args) {
 		const float speed = clamp(params[START_PARAM].getValue() + inputs[START_INPUT].getVoltage()/5.0f, 0.0f, 1.0f);
 		const float range = 4.0f;
 		float scaledSpeed = pow(2.0f, range*speed - range*0.5f);
-		static float prevSpeed(1.0f);
-		if (fabs(prevSpeed - scaledSpeed) > 0.05) {
-			fadeout = true;
-			prevSpeed = scaledSpeed;
-		}
 		currentPlayer->setPlaybackSpeed(scaledSpeed);
 	}
 
@@ -787,16 +788,16 @@ void RadioMusic::process(const ProcessArgs &args) {
 				xfadeGain2 = rack::crossfade(xfadeGain2, 0.0f, 0.005); // 0.005 = ~25ms
 
 				for (size_t channel = 0; channel < currentPlayer->object()->channels; channel++) {
-					const float currSample = currentPlayer->play(channel, pitchMode);
-					const float prevSample = previousPlayer->play(channel, pitchMode);
+					const float currSample = currentPlayer->play(channel);
+					const float prevSample = previousPlayer->play(channel);
 					const float out = currSample * xfadeGain1 + prevSample * xfadeGain2;
 
 					output += 5.0f * out / currentPlayer->object()->peak;
 				}
 				output /= currentPlayer->object()->channels;
 
-				currentPlayer->advance(loopingEnabled);
-				previousPlayer->advance(loopingEnabled);
+				currentPlayer->advance(loopingEnabled, pitchMode);
+				previousPlayer->advance(loopingEnabled, pitchMode);
 
 				if (isNear(xfadeGain1+0.005, 1.0f) || isNear(xfadeGain2, 0.0f)) {
 					crossfade = false;
@@ -810,14 +811,14 @@ void RadioMusic::process(const ProcessArgs &args) {
 				fadeOutGain = rack::crossfade(fadeOutGain, 0.0f, 0.05); // 0.05 = ~5ms
 
 				for (size_t channel = 0; channel < currentPlayer->object()->channels; channel++) {
-					const float sample = currentPlayer->play(channel, pitchMode);
+					const float sample = currentPlayer->play(channel);
 					const float out = sample * fadeOutGain;
 
 					output += 5.0f * out / currentPlayer->object()->peak;
 				}
 				output /= currentPlayer->object()->channels;
 
-				currentPlayer->advance(loopingEnabled);
+				currentPlayer->advance(loopingEnabled, pitchMode);
 
 				if (isNear(fadeOutGain, 0.0f)) {
 
@@ -826,16 +827,16 @@ void RadioMusic::process(const ProcessArgs &args) {
 					fadeout = false;
 				}
 			}
-			else // No fading
+			else // Not fade away now!
 			{
 				for (size_t channel = 0; channel < currentPlayer->object()->channels; channel++) {
-					const float out = currentPlayer->play(channel, pitchMode);
+					const float out = currentPlayer->play(channel);
 
 					output += 5.0f * out / currentPlayer->object()->peak;
 				}
 				output /= currentPlayer->object()->channels;
 
-				currentPlayer->advance(loopingEnabled);
+				currentPlayer->advance(loopingEnabled, pitchMode);
 			}
 
 			block[i] = output;
@@ -1008,27 +1009,27 @@ struct RadioMusicWidget : ModuleWidget {
 		menu->addChild(new MenuEntry);
 
 		RadioMusicPitchModeItem *pitchModeItem = new RadioMusicPitchModeItem;
-		pitchModeItem->text = "Enable Pitch Mode";
+		pitchModeItem->text = "Pitch Mode enabled";
 		pitchModeItem->rm = module;
 		menu->addChild(pitchModeItem);
 
 		RadioMusicLoopingEnabledItem *loopingEnabledItem = new RadioMusicLoopingEnabledItem;
-		loopingEnabledItem->text = "Enable Looping";
+		loopingEnabledItem->text = "Looping enabled";
 		loopingEnabledItem->rm = module;
 		menu->addChild(loopingEnabledItem);
 
 		RadioMusicCrossfadeItem *crossfadeItem = new RadioMusicCrossfadeItem;
-		crossfadeItem->text = "Enable Crossfade";
+		crossfadeItem->text = "Crossfade enabled";
 		crossfadeItem->rm = module;
 		menu->addChild(crossfadeItem);
 
 		RadioMusicFileSortItem *fileSortItem = new RadioMusicFileSortItem;
-		fileSortItem->text = "Sort Files";
+		fileSortItem->text = "Files sorted";
 		fileSortItem->rm = module;
 		menu->addChild(fileSortItem);
 
 		RadioMusicFilesAllowedItem *filesAllowedItem = new RadioMusicFilesAllowedItem;
-		filesAllowedItem->text = "Allow All Files";
+		filesAllowedItem->text = "All files allowed";
 		filesAllowedItem->rm = module;
 		menu->addChild(filesAllowedItem);
 	}
