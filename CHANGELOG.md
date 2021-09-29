@@ -1,3 +1,9 @@
+### 2.0.0 (2021-09-28)
+
+- Update to Rack v2
+- Add root directory location to context menu
+- Add Pitch Mode (available via context menu)
+
 ### 1.0.3 (2021-05-13)
 
 - Fix crash when loading RAW files
