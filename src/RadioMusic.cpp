@@ -239,14 +239,12 @@ class AudioPlayer {
 public:
 AudioPlayer() :
   startPos(0.0f),
-  sampleRateSpeed(1.0f),
   playbackSpeed(1.0f)
 {};
 ~AudioPlayer() {};
 
 void load(std::shared_ptr<AudioObject> object) {
 	audio = std::move(object);
-	//sampleRateSpeed = static_cast<float>(audio->sampleRate)/44100.0f;
 }
 
 void skipTo(float pos) {
@@ -278,7 +276,7 @@ void advance(bool repeat, bool pitchMode) {
 
 		float nextPos;
 		if (pitchMode) {
-			const float speed = sampleRateSpeed * playbackSpeed;
+			const float speed = playbackSpeed;
 			nextPos = audio->currentPos + speed * static_cast<float>(audio->channels);
 		} else {
 			nextPos = audio->currentPos + audio->channels;
@@ -330,7 +328,6 @@ private:
 
 std::shared_ptr<AudioObject> audio;
 float startPos;
-float sampleRateSpeed;
 float playbackSpeed;
 
 };
@@ -675,14 +672,15 @@ void RadioMusic::process(const ProcessArgs &args) {
 		ledTimerMs++;
 	}
 
-	// Start knob & input
+	// Normal mode: Start knob & input
 	float start(0.0f);
 	if (!pitchMode) {
 		start = clamp(params[START_PARAM].getValue() + inputs[START_INPUT].getVoltage()/5.0f, 0.0f, 1.0f);
-	} else { // Pitch mode
+	} else {
+		// Pitch mode: Start knob sets sample root pitch (via playback speed). Start input follows 1V/Oct.
 		const float speed = clamp(params[START_PARAM].getValue() + inputs[START_INPUT].getVoltage()/5.0f, 0.0f, 1.0f);
-		const float range = 4.0f;
-		float scaledSpeed = pow(2.0f, range*speed - range*0.5f);
+		const float range = 8.0f;
+		const float scaledSpeed = pow(2.0f, range*speed - range*0.5f);
 		currentPlayer->setPlaybackSpeed(scaledSpeed);
 	}
 
