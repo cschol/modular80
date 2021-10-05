@@ -20,6 +20,9 @@
 #define MAX_NUM_BANKS 16
 #define MAX_DIR_DEPTH 1
 
+#define PITCH_MODE_DEFAULT 0.5f
+#define NORMAL_MODE_DEFAULT 0.0f
+
 
 class FileScanner {
 
@@ -356,29 +359,7 @@ struct RadioMusic : Module {
 		NUM_LIGHTS
 	};
 
-	RadioMusic()
-	{
-		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
-
-		configParam(STATION_PARAM, 0.0f, 1.0f, 0.0f, "Station");
-		configParam(START_PARAM, 0.0f, 1.0f, 0.0f, "Start");
-		configButton(RESET_PARAM, "Reset");
-
-		configInput(STATION_INPUT, "Station");
-		configInput(START_INPUT, "Start");
-		configInput(RESET_INPUT, "Reset");
-
-		configOutput(OUT_OUTPUT, "Output");
-
-		configLight(RESET_LIGHT, "Reset");
-
-		currentPlayer = &audioPlayer1;
-		previousPlayer = &audioPlayer2;
-		currentObjectPool = &audioContainer1;
-		tmpObjectPool = &audioContainer2;
-
-		init();
-	}
+	RadioMusic();
 
 	void process(const ProcessArgs &args) override;
 	void reset();
@@ -516,6 +497,60 @@ private:
 
 	const int BLOCK_SIZE = 16;
 };
+
+
+// Custom ParamQuantity to handle modal behavior of Start parameter
+// It changes default value and label when in Pitch mode
+struct StartParamQuantity : ParamQuantity {
+
+	float getDefaultValue() override {
+		if (module) {
+			if (!rm) {
+				rm = dynamic_cast<RadioMusic*>(module);
+			}
+			return (rm->pitchMode) ? PITCH_MODE_DEFAULT : NORMAL_MODE_DEFAULT;
+		}
+		return getValue();
+	}
+
+	std::string getLabel() override {
+		if (module) {
+			if (!rm) {
+				rm = dynamic_cast<RadioMusic*>(module);
+			}
+			return (rm->pitchMode) ? "Pitch" : "Start";
+		}
+		return "";
+	}
+
+	RadioMusic* rm;
+};
+
+
+RadioMusic::RadioMusic()
+{
+	config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
+
+	configParam(STATION_PARAM, 0.0f, 1.0f, 0.0f, "Station");
+	//configParam(START_PARAM, 0.0f, 1.0f, 0.0f, "Start");
+	configParam<StartParamQuantity>(START_PARAM, 0.0f, 1.0f, 0.0f, "Start");
+	configButton(RESET_PARAM, "Reset");
+
+	configInput(STATION_INPUT, "Station");
+	configInput(START_INPUT, "Start");
+	configInput(RESET_INPUT, "Reset");
+
+	configOutput(OUT_OUTPUT, "Output");
+
+	configLight(RESET_LIGHT, "Reset");
+
+	currentPlayer = &audioPlayer1;
+	previousPlayer = &audioPlayer2;
+	currentObjectPool = &audioContainer1;
+	tmpObjectPool = &audioContainer2;
+
+	init();
+}
 
 void RadioMusic::reset() {
 	init();
