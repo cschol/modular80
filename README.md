@@ -82,14 +82,16 @@ A collection of sample packs to load can be found on Tom Whitwell's [GitHub page
 ### Rack module features
 
 - Playback of `.raw` (44.1 kHz, 16 bit, headerless PCM) and `.wav` files (all formats)
-- Supports up to 16 banks (subfolders) with a maximum bank size of 2GB per bank
-- New in v2.0.0: Pitch Mode
+- Supports up to 16 banks (subfolders) with a maximum bank size of 2GB per bank (size in memory!)
+- Pitch Mode (available via the context menu)
 
 ### Notable differences to hardware version
 
 - `Root folder` is selected via the context menu (instead of the settings file).
 - `Bank Selection Mode` is accessed via the context menu (instead of pressing and holding the reset button).
-- Implemented options are available via the context menu (instead of a settings file).
+- `Clear Current Bank` option via context menu to clear the currently playing bank and stop playback.
+- Visual indicator (flashing LEDs) to indicate files are being loaded (all LEDs blink slow) and an error occurred during file loading (all LEDs blink fast).
+- All implemented options are available via the context menu (instead of a settings file).
 
 # Build instructions
 

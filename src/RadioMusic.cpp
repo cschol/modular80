@@ -16,8 +16,7 @@
 #define DR_WAV_IMPLEMENTATION
 #include "dep/dr_libs/dr_wav.h"
 
-
-#define MAX_BANK_SIZE 2147483648l // 2GB max per bank, 32GB total (16 banks)
+#define MAX_BANK_SIZE 2147483648l // 2GB max per bank (in memory!)
 #define MAX_NUM_BANKS 16
 #define MAX_DIR_DEPTH 1
 
@@ -28,21 +27,22 @@ public:
 
 FileScanner() :
   scanDepth(0),
-  bankCount(0),
-  bankSize(0)
+  bankCount(0)
   {}
 ~FileScanner() {};
 
 void reset() {
 	bankCount = 0;
-	bankSize = 0;
 	scanDepth = 0;
 	banks.clear();
 }
 
 static bool isSupportedAudioFormat(std::string& path) {
 	const std::string tmpF = string::lowercase(path);
-	return (string::endsWith(tmpF, ".wav") || string::endsWith(tmpF, ".raw"));
+	return (string::endsWith(tmpF, ".wav") ||
+	        string::endsWith(tmpF, ".mp3") ||
+			string::endsWith(tmpF, ".flac") ||
+			string::endsWith(tmpF, ".raw"));
 }
 
 void scan(std::string& root, const bool sort = false, const bool filter = true) {
@@ -77,18 +77,7 @@ void scan(std::string& root, const bool sort = false, const bool filter = true) 
 			scan(entry, sort, filter);
 
 		} else {
-			struct stat statbuf;
-			if (stat(entry.c_str(), &statbuf)) {
-				WARN("Failed to get file stats: %s", entry.c_str());
-				continue;
-			}
-			bankSize += (intmax_t)statbuf.st_size;
-			if (bankSize > MAX_BANK_SIZE) {
-				WARN("Bank size limit reached. Ignoring file: %s", entry.c_str());
-				continue;
-			} else {
-				files.push_back(entry);
-			}
+			files.push_back(entry);
 		}
 	}
 
@@ -100,7 +89,6 @@ void scan(std::string& root, const bool sort = false, const bool filter = true) 
 	}
 
 	if (!files.empty()) {
-		bankSize = 0;
 		bankCount++;
 		banks.push_back(files);
 	}
@@ -109,7 +97,6 @@ void scan(std::string& root, const bool sort = false, const bool filter = true) 
 
 int scanDepth;
 int bankCount;
-intmax_t bankSize;
 std::vector< std::vector<std::string> > banks;
 
 };
@@ -175,9 +162,8 @@ bool load(const std::string &path) override {
 		}
 	}
 
-	return (samples != NULL);
+	return (samples != nullptr);
 }
-
 };
 
 
@@ -228,7 +214,7 @@ bool load(const std::string &path) override {
 		FATAL("Failed to load file: %s", filePath.c_str());
 	}
 
-    return (samples != NULL);
+    return (samples != nullptr);
 }
 
 };
@@ -333,6 +319,17 @@ float playbackSpeed;
 };
 
 
+struct AudioObjectPool {
+	unsigned long memoryUsage = 0;
+	std::vector<std::shared_ptr<AudioObject>> objects;
+
+	void clear() {
+		objects.clear();
+		memoryUsage = 0;
+	}
+};
+
+
 struct RadioMusic : Module {
 	enum ParamIds {
 		STATION_PARAM,
@@ -377,6 +374,8 @@ struct RadioMusic : Module {
 
 		currentPlayer = &audioPlayer1;
 		previousPlayer = &audioPlayer2;
+		currentObjectPool = &audioContainer1;
+		tmpObjectPool = &audioContainer2;
 
 		init();
 	}
@@ -390,6 +389,7 @@ struct RadioMusic : Module {
 	void threadedLoad();
 	void loadAudioFiles();
 	void resetCurrentPlayer(float start);
+	void clearCurrentBank();
 
 	std::string rootDir;
 	bool loadFiles;
@@ -407,7 +407,7 @@ struct RadioMusic : Module {
 	json_t *dataToJson() override {
 		json_t *rootJ = json_object();
 
-		// Option: Loop Samples
+		// Option: Pitch Mode
 		json_t *pitchModeJ = json_boolean(pitchMode);
 		json_object_set_new(rootJ, "pitchMode", pitchModeJ);
 
@@ -478,7 +478,10 @@ private:
 	AudioPlayer *currentPlayer;
 	AudioPlayer *previousPlayer;
 
-	std::vector<std::shared_ptr<AudioObject>> objects;
+	AudioObjectPool audioContainer1;
+	AudioObjectPool audioContainer2;
+	AudioObjectPool* currentObjectPool;
+	AudioObjectPool* tmpObjectPool;
 
 	dsp::SchmittTrigger rstButtonTrigger;
 	dsp::SchmittTrigger rstInputTrigger;
@@ -501,7 +504,12 @@ private:
 	dsp::SampleRateConverter<1> outputSrc;
 	dsp::DoubleRingBuffer<dsp::Frame<1>, 256> outputBuffer;
 
-	bool ready;
+	std::atomic<bool> filesLoaded;
+	std::atomic<bool> loadingFiles;
+	std::atomic<bool> loadError;
+	std::atomic<bool> abortLoad;
+	std::atomic<bool> killThread;
+
 	int currentBank;
 
 	FileScanner scanner;
@@ -525,10 +533,15 @@ void RadioMusic::init() {
 	loadFiles = false;
 	scanFiles = false;
 	selectBank = 0;
-	ready = false;
 	fadeOutGain = 1.0f;
 	xfadeGain1 = 0.0f;
 	xfadeGain2 = 1.0f;
+
+	filesLoaded = false;
+	loadingFiles = false;
+	loadError = false;
+	abortLoad = false;
+	killThread = false;
 
 	// Settings
 	pitchMode = false;
@@ -568,6 +581,8 @@ void RadioMusic::threadedScan() {
 		return;
 	}
 
+	currentBank = clamp(currentBank, 0, (int)scanner.banks.size()-1);
+
 	loadFiles = true;
 }
 
@@ -582,7 +597,9 @@ void RadioMusic::threadedLoad() {
 		return;
 	}
 
-	objects.clear();
+	loadingFiles = true;
+
+	drwav wav;
 
 	currentBank = clamp(currentBank, 0, (int)scanner.banks.size()-1);
 
@@ -591,7 +608,6 @@ void RadioMusic::threadedLoad() {
 		std::shared_ptr<AudioObject> object;
 
 		// Quickly determine if file is WAV file
-		drwav wav;
 		if (drwav_init_file(&wav, files[i].c_str(), nullptr)) {
 			object = std::make_shared<WavAudioObject>();
 			if (drwav_uninit(&wav) != DRWAV_SUCCESS) {
@@ -603,16 +619,43 @@ void RadioMusic::threadedLoad() {
 
 		// Actually load files
 		if (object->load(files[i])) {
-			objects.push_back(std::move(object));
+			// Don't mess with the containers if we are shutting down.
+			if (killThread) {
+				loadingFiles = false;
+				return;
+			}
+			// Abort the current load process and release the memory.
+			if (abortLoad) {
+				tmpObjectPool->clear();
+				loadingFiles = false;
+				return;
+			}
+
+			const unsigned long memory = object->totalSamples*sizeof(float);
+			if ((tmpObjectPool->memoryUsage + memory) < MAX_BANK_SIZE) {
+				tmpObjectPool->objects.push_back(std::move(object));
+				tmpObjectPool->memoryUsage += memory;
+			} else {
+				WARN("Bank memory limit of %ld Bytes exceeded. Aborting loading of audio objects.", MAX_BANK_SIZE);
+				loadError = true;
+				break;
+			}
 		} else {
 			WARN("Failed to load object %d %s", i, files[i].c_str());
+			loadError = true;
 		}
 	}
 
-	prevIndex = -1; // Force channel change detection upon loading files
-	elapsedMs = 0; // Reset station to beginning
+	filesLoaded = true;
 
-	ready = true;
+	while(filesLoaded) {
+		// Wait for object audio pool pointers to be swapped (in main thread).
+	}
+
+	// After swap, release memory of previous audio object pool.
+	tmpObjectPool->clear();
+
+	loadingFiles = false;
 }
 
 void RadioMusic::loadAudioFiles() {
@@ -626,6 +669,17 @@ void RadioMusic::resetCurrentPlayer(float start) {
 	if (pos >= channels) { pos -= channels; }
 	pos = pos % (currentPlayer->object()->totalSamples / channels);
 	currentPlayer->resetTo(pos);
+}
+
+void RadioMusic::clearCurrentBank() {
+	currentObjectPool->clear();
+	previousPlayer->reset();
+	currentPlayer->reset();
+	scanner.banks[currentBank].clear();
+
+	for (int i = 0; i < 4; i++) {
+		lights[LED_0_LIGHT+i].value = 0.0f;
+	}
 }
 
 void RadioMusic::process(const ProcessArgs &args) {
@@ -642,12 +696,31 @@ void RadioMusic::process(const ProcessArgs &args) {
 	}
 
 	if (loadFiles) {
-		// Disable channel switching and resetting while loading files.
-		ready = false;
+		// If we are already loading, tell the thread to abort the
+		// current loading process.
+		if (loadingFiles && !abortLoad) {
+			abortLoad = true;
+		}
+		if (!loadingFiles) {
+			abortLoad = false;
+			loadAudioFiles();
+			loadFiles = false;
+		}
+	}
 
-		loadAudioFiles();
+	if (filesLoaded) {
+		// Swap out Audio Object Pool with newly loaded files
+		AudioObjectPool* tmp;
+		tmp = currentObjectPool;
+		currentObjectPool = tmpObjectPool;
+		tmpObjectPool = tmp;
 
-		loadFiles = false;
+		currentPlayer->reset(); // Reset current player to use new audio
+		outputBuffer.clear();   // Clear output buffer to start fresh
+		prevIndex = -1; // Force channel change detection upon loading files
+		elapsedMs = 0;  // Reset station to beginning
+
+		filesLoaded = false;
 	}
 
 	// Bank selection mode
@@ -684,7 +757,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 		currentPlayer->setPlaybackSpeed(scaledSpeed);
 	}
 
-	if (ready && (rstButtonTrigger.process(params[RESET_PARAM].getValue()) ||
+	if (currentObjectPool->objects.size() > 0 && (rstButtonTrigger.process(params[RESET_PARAM].getValue()) ||
 		(inputs[RESET_INPUT].isConnected() && rstInputTrigger.process(inputs[RESET_INPUT].getVoltage())))) {
 
 		fadeOutGain = 1.0f;
@@ -701,24 +774,24 @@ void RadioMusic::process(const ProcessArgs &args) {
 	// Channel knob & input
 	const float channel = clamp(params[STATION_PARAM].getValue() + inputs[STATION_INPUT].getVoltage()/5.0f, 0.0f, 1.0f);
 	const int index = \
-		clamp(static_cast<int>(rescale(channel, 0.0f, 1.0f, 0.0f, static_cast<float>(objects.size()))),
-			0, objects.size() - 1);
+		clamp(static_cast<int>(rescale(channel, 0.0f, 1.0f, 0.0f, static_cast<float>(currentObjectPool->objects.size()))),
+			0, currentObjectPool->objects.size() - 1);
 
 	// Channel switch detection
-	if (ready && index != prevIndex) {
+	if (currentObjectPool->objects.size() > 0 && index != prevIndex) {
 
 		AudioPlayer *tmp;
 		tmp = previousPlayer;
 		previousPlayer = currentPlayer;
 		currentPlayer = tmp;
 
-		if (index < (int)objects.size()) {
-			currentPlayer->load(objects[index]);
+		if (index < (int)currentObjectPool->objects.size()) {
+			currentPlayer->load(currentObjectPool->objects[index]);
 
 			if (!pitchMode) {
-				unsigned long pos = objects[index]->currentPos + \
-					(currentPlayer->object()->channels * elapsedMs * objects[index]->sampleRate) / 1000;
-				pos = pos % (objects[index]->totalSamples / objects[index]->channels);
+				unsigned long pos = currentObjectPool->objects[index]->currentPos + \
+					(currentPlayer->object()->channels * elapsedMs * currentObjectPool->objects[index]->sampleRate) / 1000;
+				pos = pos % (currentObjectPool->objects[index]->totalSamples / currentObjectPool->objects[index]->channels);
 				currentPlayer->skipTo(pos);
 			} else {
 				currentPlayer->skipTo(0);
@@ -873,6 +946,43 @@ void RadioMusic::process(const ProcessArgs &args) {
 			}
 		}
 	}
+
+	// Indicator for loading audio files and errors during load.
+	if (loadingFiles || loadError) {
+		static bool initTimer(true);
+		static unsigned long timerStart(0);
+		static bool toggle(false);
+		static int numBlinks(0);
+		unsigned int blinkTime(0);
+
+		if (loadingFiles) {
+			blinkTime = 1000u;
+		}
+		if (loadError) {
+			blinkTime = 200u;
+		}
+
+		if (initTimer) {
+			timerStart = ledTimerMs;
+			initTimer = false;
+		}
+
+		for (int i = 0; i < 4; i++) {
+			lights[LED_0_LIGHT+i].value = toggle ? 1.0f : 0.0f;
+		}
+
+		if ((ledTimerMs - timerStart) > blinkTime) {
+			initTimer = true;
+			ledTimerMs = 0;
+			toggle = !toggle;
+
+			if (loadError && ++numBlinks > 10) {
+				numBlinks = 0;
+				toggle = false;
+				loadError = false;
+			}
+		}
+	}
 }
 
 struct RadioMusicDirDialogItem : MenuItem {
@@ -902,6 +1012,13 @@ struct RadioMusicSelectBankItem : MenuItem {
 	void step() override {
 		text = (rm->selectBank != true) ? "Enter Bank Select Mode" : "Exit Bank Select Mode";
 		rightText = CHECKMARK(rm->selectBank);
+	}
+};
+
+struct RadioMusicClearCurrentBankItem : MenuItem {
+	RadioMusic *rm;
+	void onAction(const event::Action &e) override {
+		rm->clearCurrentBank();
 	}
 };
 
@@ -1003,6 +1120,11 @@ struct RadioMusicWidget : ModuleWidget {
 		selectBankItem->text = "";
 		selectBankItem->rm = module;
 		menu->addChild(selectBankItem);
+
+		RadioMusicClearCurrentBankItem *clearCurrentBankItem = new RadioMusicClearCurrentBankItem();
+		clearCurrentBankItem->text = "Clear Current Bank";
+		clearCurrentBankItem->rm = module;
+		menu->addChild(clearCurrentBankItem);
 
 		menu->addChild(new MenuEntry);
 
