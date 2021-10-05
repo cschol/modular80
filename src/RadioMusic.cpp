@@ -43,8 +43,6 @@ void reset() {
 static bool isSupportedAudioFormat(std::string& path) {
 	const std::string tmpF = string::lowercase(path);
 	return (string::endsWith(tmpF, ".wav") ||
-	        string::endsWith(tmpF, ".mp3") ||
-			string::endsWith(tmpF, ".flac") ||
 			string::endsWith(tmpF, ".raw"));
 }
 
