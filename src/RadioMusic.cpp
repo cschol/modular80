@@ -503,9 +503,7 @@ struct StartParamQuantity : ParamQuantity {
 
 	float getDefaultValue() override {
 		if (module) {
-			if (!rm) {
-				rm = dynamic_cast<RadioMusic*>(module);
-			}
+			rm = dynamic_cast<RadioMusic*>(module);
 			return (rm->pitchMode) ? PITCH_MODE_DEFAULT : NORMAL_MODE_DEFAULT;
 		}
 		return getValue();
@@ -513,15 +511,13 @@ struct StartParamQuantity : ParamQuantity {
 
 	std::string getLabel() override {
 		if (module) {
-			if (!rm) {
-				rm = dynamic_cast<RadioMusic*>(module);
-			}
+			rm = dynamic_cast<RadioMusic*>(module);
 			return (rm->pitchMode) ? "Pitch" : "Start";
 		}
 		return "";
 	}
 
-	RadioMusic* rm;
+	RadioMusic* rm = nullptr;
 };
 
 
@@ -530,7 +526,6 @@ RadioMusic::RadioMusic()
 	config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
 	configParam(STATION_PARAM, 0.0f, 1.0f, 0.0f, "Station");
-	//configParam(START_PARAM, 0.0f, 1.0f, 0.0f, "Start");
 	configParam<StartParamQuantity>(START_PARAM, 0.0f, 1.0f, 0.0f, "Start");
 	configButton(RESET_PARAM, "Reset");
 
