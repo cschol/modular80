@@ -1,6 +1,7 @@
 #include "modular80.hpp"
 
 #include <thread>
+#include <condition_variable>
 
 #include "osdialog.h"
 
