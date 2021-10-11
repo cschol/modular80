@@ -1,15 +1,6 @@
 #include "modular80.hpp"
 
-#include <stdio.h>
-#include <cfloat>
 #include <thread>
-#include <algorithm>
-#include <sys/stat.h>
-
-#include "dsp/digital.hpp"
-#include "dsp/vumeter.hpp"
-#include "dsp/resampler.hpp"
-#include "dsp/ringbuffer.hpp"
 
 #include "osdialog.h"
 
@@ -358,22 +349,16 @@ struct RadioMusic : Module {
 	};
 
 	RadioMusic();
+	~RadioMusic();
 
 	void process(const ProcessArgs &args) override;
-	void reset();
-	void init();
+	void onReset() override;
 
-	void threadedScan();
-	void scanAudioFiles();
-	void threadedLoad();
-	void loadAudioFiles();
-	void resetCurrentPlayer(float start);
 	void clearCurrentBank();
 
-	std::string rootDir;
+	// Context menu
 	bool loadFiles;
 	bool scanFiles;
-
 	bool selectBank;
 
 	// Settings
@@ -382,6 +367,8 @@ struct RadioMusic : Module {
 	bool enableCrossfade;
 	bool sortFiles;
 	bool allowAllFiles;
+	std::string rootDir;
+	int currentBank;
 
 	json_t *dataToJson() override {
 		json_t *rootJ = json_object();
@@ -451,6 +438,12 @@ struct RadioMusic : Module {
 
 private:
 
+	void init();
+	void workerThread();
+	void threadedScan();
+	void threadedLoad();
+	void resetCurrentPlayer(float start);
+
 	AudioPlayer audioPlayer1;
 	AudioPlayer audioPlayer2;
 
@@ -468,13 +461,11 @@ private:
 	int prevIndex;
 	unsigned long tick;
 	unsigned long elapsedMs;
-
 	bool crossfade;
 	bool fadeout;
 	float fadeOutGain;
 	float xfadeGain1;
 	float xfadeGain2;
-
 	bool flashResetLed;
 	unsigned long ledTimerMs;
 
@@ -483,19 +474,23 @@ private:
 	dsp::SampleRateConverter<1> outputSrc;
 	dsp::DoubleRingBuffer<dsp::Frame<1>, 256> outputBuffer;
 
-	std::atomic<bool> filesLoaded;
-	std::atomic<bool> loadingFiles;
-	std::atomic<bool> loadError;
-	std::atomic<bool> abortLoad;
-	std::atomic<bool> killThread;
-
-	int currentBank;
-
 	FileScanner scanner;
 
 	const int BLOCK_SIZE = 16;
-};
 
+	std::mutex mutex;
+	std::condition_variable cond;
+	std::shared_ptr<std::thread> worker;
+	bool stopWorker = false;
+	bool workerDoWork = false;
+
+	std::atomic<bool> loadingFiles;
+	std::atomic<bool> filesLoaded;
+	std::atomic<bool> loadError;
+	std::atomic<bool> abortLoad;
+	std::atomic<bool> scanAudioFiles;
+	std::atomic<bool> loadAudioFiles;
+};
 
 // Custom ParamQuantity to handle modal behavior of Start parameter
 // It changes default value and label when in Pitch mode
@@ -521,8 +516,7 @@ struct StartParamQuantity : ParamQuantity {
 };
 
 
-RadioMusic::RadioMusic()
-{
+RadioMusic::RadioMusic() {
 	config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
 	configParam(STATION_PARAM, 0.0f, 1.0f, 0.0f, "Station");
@@ -542,10 +536,20 @@ RadioMusic::RadioMusic()
 	currentObjectPool = &audioContainer1;
 	tmpObjectPool = &audioContainer2;
 
+	worker = std::make_shared<std::thread>(&RadioMusic::workerThread, this);
+
 	init();
 }
 
-void RadioMusic::reset() {
+RadioMusic::~RadioMusic() {
+	abortLoad = true;
+	stopWorker = true;
+	workerDoWork = true;
+	cond.notify_one();
+	worker->join();
+}
+
+void RadioMusic::onReset() {
 	init();
 }
 
@@ -555,21 +559,22 @@ void RadioMusic::init() {
 	elapsedMs = 0;
 	crossfade = false;
 	fadeout = false;
-	flashResetLed = false;
-	ledTimerMs = 0;
-	rootDir = "";
-	loadFiles = false;
-	scanFiles = false;
-	selectBank = 0;
 	fadeOutGain = 1.0f;
 	xfadeGain1 = 0.0f;
 	xfadeGain2 = 1.0f;
+	flashResetLed = false;
+	ledTimerMs = 0;
+
+	selectBank = false;
+	loadFiles = false;
+	scanFiles = false;
 
 	filesLoaded = false;
 	loadingFiles = false;
 	loadError = false;
 	abortLoad = false;
-	killThread = false;
+	scanAudioFiles = false;
+	loadAudioFiles = false;
 
 	// Settings
 	pitchMode = false;
@@ -577,8 +582,6 @@ void RadioMusic::init() {
 	enableCrossfade = true;
 	sortFiles = false;
 	allowAllFiles = false;
-
-	// Persistent
 	rootDir = "";
 	currentBank = 0;
 
@@ -614,9 +617,23 @@ void RadioMusic::threadedScan() {
 	loadFiles = true;
 }
 
-void RadioMusic::scanAudioFiles() {
-	std::thread worker(&RadioMusic::threadedScan, this);
-	worker.detach();
+void RadioMusic::workerThread() {
+	while (true) {
+		std::unique_lock<std::mutex> lock(mutex);
+		cond.wait(lock, std::bind(&RadioMusic::workerDoWork, this));
+		if (stopWorker) return;
+
+		if (scanAudioFiles) {
+			threadedScan();
+			scanAudioFiles = false;
+		}
+		if (loadAudioFiles) {
+			threadedLoad();
+			loadAudioFiles = false;
+		}
+
+		workerDoWork = false;
+	}
 }
 
 void RadioMusic::threadedLoad() {
@@ -647,11 +664,6 @@ void RadioMusic::threadedLoad() {
 
 		// Actually load files
 		if (object->load(files[i])) {
-			// Don't mess with the containers if we are shutting down.
-			if (killThread) {
-				loadingFiles = false;
-				return;
-			}
 			// Abort the current load process and release the memory.
 			if (abortLoad) {
 				tmpObjectPool->clear();
@@ -686,11 +698,6 @@ void RadioMusic::threadedLoad() {
 	loadingFiles = false;
 }
 
-void RadioMusic::loadAudioFiles() {
-	std::thread worker(&RadioMusic::threadedLoad, this);
-	worker.detach();
-}
-
 void RadioMusic::resetCurrentPlayer(float start) {
 	const unsigned int channels = currentPlayer->object()->channels;
 	unsigned long pos = static_cast<int>(start * (currentPlayer->object()->totalSamples / channels));
@@ -718,7 +725,9 @@ void RadioMusic::process(const ProcessArgs &args) {
 	}
 
 	if (scanFiles) {
-		scanAudioFiles();
+		scanAudioFiles = true;
+		workerDoWork = true;
+		cond.notify_one();
 
 		scanFiles = false;
 	}
@@ -731,7 +740,11 @@ void RadioMusic::process(const ProcessArgs &args) {
 		}
 		if (!loadingFiles) {
 			abortLoad = false;
-			loadAudioFiles();
+
+			loadAudioFiles = true;
+			workerDoWork = true;
+			cond.notify_one();
+
 			loadFiles = false;
 		}
 	}

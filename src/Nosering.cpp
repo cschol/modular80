@@ -1,9 +1,5 @@
 #include "modular80.hpp"
 
-#include <random>
-
-#include "dsp/digital.hpp"
-
 //#define DEBUG_MODE
 
 #define SR_SIZE 8
@@ -39,9 +35,7 @@ struct Nosering : Module {
 		NUM_LIGHTS
 	};
 
-	Nosering() : _seed_gen(_rd()),
-		_generator(_seed_gen()),
-		_uniform(-10.0, 10.0)
+	Nosering()
 	{
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
@@ -62,7 +56,6 @@ struct Nosering : Module {
 	}
 
 	void process(const ProcessArgs &args) override;
-	void reset();
 	void onReset() override;
 
 private:
@@ -72,16 +65,7 @@ private:
 	dsp::SchmittTrigger clkTrigger;
 
 	unsigned int shiftRegister[SR_SIZE] = {0,0,0,0,0,0,0,0};
-
-	std::random_device _rd;
-	std::mt19937 _seed_gen;
-	std::minstd_rand _generator;
-	std::uniform_real_distribution<float> _uniform;
 };
-
-void Nosering::reset() {
-	onReset();
-}
 
 void Nosering::onReset() {
 	phase = 0.0f;
@@ -100,7 +84,7 @@ void Nosering::process(const ProcessArgs &args) {
 	const float chance = clamp((params[CHANCE_PARAM].getValue() + inputs[CHANCE_INPUT].getVoltage()), -10.0f, 10.0f);
 
 	// Generate White noise sample
-	const float noiseSample = clamp(_uniform(_generator), -10.0f, 10.0f);
+	const float noiseSample = clamp((random::uniform() * 20.0f - 10.0f), -10.0f, 10.0f);
 
 	// Either use Chance input to sample data for Chance comparator or White Noise.
 	float sample(0.0f);
@@ -125,7 +109,7 @@ void Nosering::process(const ProcessArgs &args) {
 			freq = MAX_FREQ;
 		}
 
-		phase += freq / APP->engine->getSampleRate();
+		phase += freq * args.sampleTime;
 		if (phase >= 1.0f) {
 			phase = 0.0f;
 			doStep = true;

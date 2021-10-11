@@ -1,7 +1,5 @@
 #include "modular80.hpp"
 
-#include "dsp/digital.hpp"
-
 struct Logistiker : Module {
 	enum ParamIds {
 		RATE_PARAM,
@@ -42,7 +40,6 @@ struct Logistiker : Module {
 	}
 
 	void process(const ProcessArgs &args) override;
-	void reset();
 	void onReset() override;
 
 private:
@@ -55,10 +52,6 @@ private:
 	float x;
 	float phase;
 };
-
-void Logistiker::reset() {
-	onReset();
-}
 
 void Logistiker::onReset() {
 	x = 0.0f;
@@ -93,7 +86,7 @@ void Logistiker::process(const ProcessArgs &args) {
 	}
 	else {
 		// Internal clock
-		phase += pow(2.0f, params[RATE_PARAM].getValue())/APP->engine->getSampleRate();
+		phase += pow(2.0f, params[RATE_PARAM].getValue()) * args.sampleTime;
 		if (phase >= 1.0f) {
 			phase = 0.0f;
 			doStep = true;
