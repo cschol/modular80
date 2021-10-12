@@ -618,6 +618,8 @@ void RadioMusic::threadedScan() {
 	loadFiles = true;
 }
 
+// Inspired by Stoermelder-P1 thread handling.
+// https://github.com/stoermelder/vcvrack-packone
 void RadioMusic::workerThread() {
 	while (true) {
 		std::unique_lock<std::mutex> lock(mutex);
