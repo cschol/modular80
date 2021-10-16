@@ -363,6 +363,7 @@ struct RadioMusic : Module {
 	bool selectBank;
 
 	// Settings
+	bool stereoOutputMode;
 	bool pitchMode;
 	bool loopingEnabled;
 	bool enableCrossfade;
@@ -373,6 +374,10 @@ struct RadioMusic : Module {
 
 	json_t *dataToJson() override {
 		json_t *rootJ = json_object();
+
+		// Option: Stereo Output Mode
+		json_t *stereoOutputModeJ = json_boolean(stereoOutputMode);
+		json_object_set_new(rootJ, "stereoOutputMode", stereoOutputModeJ);
 
 		// Option: Pitch Mode
 		json_t *pitchModeJ = json_boolean(pitchMode);
@@ -406,6 +411,10 @@ struct RadioMusic : Module {
 	}
 
 	void dataFromJson(json_t *rootJ) override {
+		// Option: Stereo Output Mode
+		json_t *stereoOutputModeJ = json_object_get(rootJ, "stereoOutputMode");
+		if (stereoOutputModeJ) stereoOutputMode = json_boolean_value(stereoOutputModeJ);
+
 		// Option: Pitch Mode
 		json_t *pitchModeJ = json_object_get(rootJ, "pitchMode");
 		if (pitchModeJ) pitchMode = json_boolean_value(pitchModeJ);
@@ -472,8 +481,8 @@ private:
 
 	dsp::VuMeter2 vumeter;
 
-	dsp::SampleRateConverter<1> outputSrc;
-	dsp::DoubleRingBuffer<dsp::Frame<1>, 256> outputBuffer;
+	dsp::SampleRateConverter<2> outputSrc;
+	dsp::DoubleRingBuffer<dsp::Frame<2>, 256> outputBuffer;
 
 	FileScanner scanner;
 
@@ -578,6 +587,7 @@ void RadioMusic::init() {
 	loadAudioFiles = false;
 
 	// Settings
+	stereoOutputMode = false;
 	pitchMode = false;
 	loopingEnabled = true;
 	enableCrossfade = true;
@@ -784,7 +794,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 	}
 
 	// Keep track of milliseconds of elapsed time
-	if (tick++ % (static_cast<int>(APP->engine->getSampleRate())/1000) == 0) {
+	if (tick++ % (static_cast<int>(args.sampleRate)/1000) == 0) {
 		elapsedMs++;
 		ledTimerMs++;
 	}
@@ -891,10 +901,9 @@ void RadioMusic::process(const ProcessArgs &args) {
 			return;
 		}
 
-		float block[BLOCK_SIZE];
+		dsp::Frame<2> frame[BLOCK_SIZE];
 
 		for (int i = 0; i < BLOCK_SIZE; i++) {
-			float output(0.0f);
 
 			// Crossfade?
 			if (crossfade) {
@@ -907,9 +916,8 @@ void RadioMusic::process(const ProcessArgs &args) {
 					const float prevSample = previousPlayer->play(channel);
 					const float out = currSample * xfadeGain1 + prevSample * xfadeGain2;
 
-					output += 5.0f * out / currentPlayer->object()->peak;
+					frame[i].samples[channel] = 5.0f * out / currentPlayer->object()->peak;
 				}
-				output /= currentPlayer->object()->channels;
 
 				currentPlayer->advance(loopingEnabled, pitchMode);
 				previousPlayer->advance(loopingEnabled, pitchMode);
@@ -929,9 +937,8 @@ void RadioMusic::process(const ProcessArgs &args) {
 					const float sample = currentPlayer->play(channel);
 					const float out = sample * fadeOutGain;
 
-					output += 5.0f * out / currentPlayer->object()->peak;
+					frame[i].samples[channel] = 5.0f * out / currentPlayer->object()->peak;
 				}
-				output /= currentPlayer->object()->channels;
 
 				currentPlayer->advance(loopingEnabled, pitchMode);
 
@@ -947,26 +954,17 @@ void RadioMusic::process(const ProcessArgs &args) {
 				for (size_t channel = 0; channel < currentPlayer->object()->channels; channel++) {
 					const float out = currentPlayer->play(channel);
 
-					output += 5.0f * out / currentPlayer->object()->peak;
+					frame[i].samples[channel] = 5.0f * out / currentPlayer->object()->peak;
 				}
-				output /= currentPlayer->object()->channels;
 
 				currentPlayer->advance(loopingEnabled, pitchMode);
 			}
-
-			block[i] = output;
 		}
 
 		// Sample rate conversion to match Rack engine sample rate.
-		outputSrc.setRates(currentPlayer->object()->sampleRate, APP->engine->getSampleRate());
+		outputSrc.setRates(currentPlayer->object()->sampleRate, args.sampleRate);
 		int inLen = BLOCK_SIZE;
 		int outLen = outputBuffer.capacity();
-
-		dsp::Frame<1> frame[BLOCK_SIZE];
-
-		for (int i = 0; i < BLOCK_SIZE; i++) {
-			frame[i].samples[0] = block[i];
-		}
 
 		outputSrc.process(frame, &inLen, outputBuffer.endData(), &outLen);
 		outputBuffer.endIncr(outLen);
@@ -974,12 +972,37 @@ void RadioMusic::process(const ProcessArgs &args) {
 
 	// Output processing & metering
 	if (!outputBuffer.empty()) {
-		dsp::Frame<1> frame = outputBuffer.shift();
-		outputs[OUT_OUTPUT].setVoltage(frame.samples[0]);
+		outputs[OUT_OUTPUT].setChannels(stereoOutputMode ? 2 : 1);
+		dsp::Frame<2> frame = outputBuffer.shift();
+
+		// Stereo mode
+		if (stereoOutputMode) {
+			if (currentPlayer->object()->channels == 2) {
+				for (unsigned int c = 0; c < 2; c++) {
+					outputs[OUT_OUTPUT].setVoltage(frame.samples[c], c);
+				}
+			} else {
+				// For mono audio files, duplicate mono audio across both channels.
+				if (currentPlayer->object()->channels == 1) {
+					outputs[OUT_OUTPUT].setVoltage(frame.samples[0], 0);
+					outputs[OUT_OUTPUT].setVoltage(frame.samples[0], 1);
+				}
+			}
+		// Mono mode
+		} else {
+			if (currentPlayer->object()->channels == 2) {
+				// L/R channels summed to mono.
+				outputs[OUT_OUTPUT].setVoltage((frame.samples[0] + frame.samples[1])/currentPlayer->object()->channels);
+			} else {
+				if (currentPlayer->object()->channels == 1) {
+					outputs[OUT_OUTPUT].setVoltage(frame.samples[0]);
+				}
+			}
+		}
 
 		// Disable VU Meter in Bank Selection mode.
 		if (!selectBank) {
-			const float sampleTime = APP->engine->getSampleTime();
+			const float sampleTime = args.sampleTime;
 			vumeter.process(sampleTime, frame.samples[0]/5.0f);
 
 			if (tick % 512 == 0) {
@@ -1063,6 +1086,16 @@ struct RadioMusicClearCurrentBankItem : MenuItem {
 	RadioMusic *rm;
 	void onAction(const event::Action &e) override {
 		rm->clearCurrentBank();
+	}
+};
+
+struct RadioMusicStereoOutputModeItem : MenuItem {
+	RadioMusic *rm;
+	void onAction(const event::Action &e) override {
+		rm->stereoOutputMode = !rm->stereoOutputMode;
+	}
+	void step() override {
+		rightText = CHECKMARK(rm->stereoOutputMode);
 	}
 };
 
@@ -1171,6 +1204,11 @@ struct RadioMusicWidget : ModuleWidget {
 		menu->addChild(clearCurrentBankItem);
 
 		menu->addChild(new MenuEntry);
+
+		RadioMusicStereoOutputModeItem *stereoOutputModeItem = new RadioMusicStereoOutputModeItem;
+		stereoOutputModeItem->text = "Stereo Output enabled";
+		stereoOutputModeItem->rm = module;
+		menu->addChild(stereoOutputModeItem);
 
 		RadioMusicPitchModeItem *pitchModeItem = new RadioMusicPitchModeItem;
 		pitchModeItem->text = "Pitch Mode enabled";

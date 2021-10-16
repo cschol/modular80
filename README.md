@@ -92,6 +92,7 @@ A collection of sample packs to load can be found on Tom Whitwell's [GitHub page
 - `Clear Current Bank` option via context menu to clear the currently playing bank and stop playback.
 - Visual indicator (flashing LEDs) to indicate files are being loaded (all LEDs blink slow) and an error occurred during file loading (all LEDs blink fast).
 - All implemented options are available via the context menu (instead of a settings file).
+- `Stereo Mode` is accessed via context menu and enables stereo output for stereo files (dual mono for mono files) via a polyphonic cable.
 
 # Build instructions
 
