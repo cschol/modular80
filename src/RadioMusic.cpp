@@ -342,10 +342,7 @@ struct RadioMusic : Module {
 	};
 	enum LightIds {
 		RESET_LIGHT,
-		LED_0_LIGHT,
-		LED_1_LIGHT,
-		LED_2_LIGHT,
-		LED_3_LIGHT,
+		ENUMS(LED_LIGHT, 4),
 		NUM_LIGHTS
 	};
 
@@ -366,7 +363,7 @@ struct RadioMusic : Module {
 	bool stereoOutputMode;
 	bool pitchMode;
 	bool loopingEnabled;
-	bool enableCrossfade;
+	bool crossfadeEnabled;
 	bool sortFiles;
 	bool allowAllFiles;
 	std::string rootDir;
@@ -388,8 +385,8 @@ struct RadioMusic : Module {
 		json_object_set_new(rootJ, "loopingEnabled", loopingJ);
 
 		// Option: Enable Crossfade
-		json_t *crossfadeJ = json_boolean(enableCrossfade);
-		json_object_set_new(rootJ, "enableCrossfade", crossfadeJ);
+		json_t *crossfadeJ = json_boolean(crossfadeEnabled);
+		json_object_set_new(rootJ, "crossfadeEnabled", crossfadeJ);
 
 		// Option: Sort Files
 		json_t *sortJ = json_boolean(sortFiles);
@@ -424,8 +421,8 @@ struct RadioMusic : Module {
 		if (loopingJ) loopingEnabled = json_boolean_value(loopingJ);
 
 		// Option: Enable Crossfade
-		json_t *crossfadeJ = json_object_get(rootJ, "enableCrossfade");
-		if (crossfadeJ) enableCrossfade = json_boolean_value(crossfadeJ);
+		json_t *crossfadeJ = json_object_get(rootJ, "crossfadeEnabled");
+		if (crossfadeJ) crossfadeEnabled = json_boolean_value(crossfadeJ);
 
 		// Option: Sort Files
 		json_t *sortJ = json_object_get(rootJ, "sortFiles");
@@ -548,7 +545,7 @@ RadioMusic::RadioMusic() {
 
 	worker = std::make_shared<std::thread>(&RadioMusic::workerThread, this);
 
-	init();
+	onReset();
 }
 
 RadioMusic::~RadioMusic() {
@@ -590,7 +587,7 @@ void RadioMusic::init() {
 	stereoOutputMode = false;
 	pitchMode = false;
 	loopingEnabled = true;
-	enableCrossfade = true;
+	crossfadeEnabled = true;
 	sortFiles = false;
 	allowAllFiles = false;
 	rootDir = "";
@@ -726,7 +723,7 @@ void RadioMusic::clearCurrentBank() {
 	scanner.banks[currentBank].clear();
 
 	for (int i = 0; i < 4; i++) {
-		lights[LED_0_LIGHT+i].value = 0.0f;
+		lights[LED_LIGHT+i].value = 0.0f;
 	}
 }
 
@@ -786,10 +783,9 @@ void RadioMusic::process(const ProcessArgs &args) {
 		}
 
 		// Show bank selection in LED bar
-		lights[LED_0_LIGHT].value = (1 && (currentBank & 1));
-		lights[LED_1_LIGHT].value = (1 && (currentBank & 2));
-		lights[LED_2_LIGHT].value = (1 && (currentBank & 4));
-		lights[LED_3_LIGHT].value = (1 && (currentBank & 8));
+		for (size_t i = 0; i < 4; i++) {
+			lights[LED_LIGHT+i].value = (1 && (currentBank & 1 << i));
+		}
 		lights[RESET_LIGHT].value = 1.0f;
 	}
 
@@ -816,7 +812,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 
 		fadeOutGain = 1.0f;
 
-		if (enableCrossfade) {
+		if (crossfadeEnabled) {
 			fadeout = true;
 		} else {
 			resetCurrentPlayer(start);
@@ -857,7 +853,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 		xfadeGain1 = 0.0f;
 		xfadeGain2 = 1.0f;
 
-		crossfade = enableCrossfade;
+		crossfade = crossfadeEnabled;
 
 		// Different number of channels while crossfading leads to audible artifacts.
 		if (previousPlayer->object()) {
@@ -1008,7 +1004,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 			if (tick % 512 == 0) {
 				for (int i = 0; i < 4; i++){
 					float b = vumeter.getBrightness(-6.0f * (i+1), 0.0f * i);
-					lights[LED_3_LIGHT - i].setBrightness(b);
+					lights[LED_LIGHT + 3 - i].setBrightness(b);
 				}
 			}
 		}
@@ -1035,7 +1031,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 		}
 
 		for (int i = 0; i < 4; i++) {
-			lights[LED_0_LIGHT+i].value = toggle ? 1.0f : 0.0f;
+			lights[LED_LIGHT+i].value = toggle ? 1.0f : 0.0f;
 		}
 
 		if ((ledTimerMs - timerStart) > blinkTime) {
@@ -1082,72 +1078,6 @@ struct RadioMusicSelectBankItem : MenuItem {
 	}
 };
 
-struct RadioMusicClearCurrentBankItem : MenuItem {
-	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
-		rm->clearCurrentBank();
-	}
-};
-
-struct RadioMusicStereoOutputModeItem : MenuItem {
-	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
-		rm->stereoOutputMode = !rm->stereoOutputMode;
-	}
-	void step() override {
-		rightText = CHECKMARK(rm->stereoOutputMode);
-	}
-};
-
-struct RadioMusicPitchModeItem : MenuItem {
-	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
-		rm->pitchMode = !rm->pitchMode;
-	}
-	void step() override {
-		rightText = CHECKMARK(rm->pitchMode);
-	}
-};
-
-struct RadioMusicLoopingEnabledItem : MenuItem {
-	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
-		rm->loopingEnabled = !rm->loopingEnabled;
-	}
-	void step() override {
-		rightText = CHECKMARK(rm->loopingEnabled);
-	}
-};
-
-struct RadioMusicCrossfadeItem : MenuItem {
-	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
-		rm->enableCrossfade = !rm->enableCrossfade;
-	}
-	void step() override {
-		rightText = CHECKMARK(rm->enableCrossfade);
-	}
-};
-
-struct RadioMusicFileSortItem : MenuItem {
-	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
-		rm->sortFiles = !rm->sortFiles;
-	}
-	void step() override {
-		rightText = CHECKMARK(rm->sortFiles);
-	}
-};
-
-struct RadioMusicFilesAllowedItem : MenuItem {
-	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
-		rm->allowAllFiles = !rm->allowAllFiles;
-	}
-	void step() override {
-		rightText = CHECKMARK(rm->allowAllFiles);
-	}
-};
 
 struct RadioMusicWidget : ModuleWidget {
 	RadioMusicWidget(RadioMusic *module) {
@@ -1156,10 +1086,10 @@ struct RadioMusicWidget : ModuleWidget {
 
 		addChild(createWidget<ScrewSilver>(Vec(14, 0)));
 
-		addChild(createLight<MediumLight<RedLight>>(Vec(6, 33), module, RadioMusic::LED_0_LIGHT));
-		addChild(createLight<MediumLight<RedLight>>(Vec(19, 33), module, RadioMusic::LED_1_LIGHT));
-		addChild(createLight<MediumLight<RedLight>>(Vec(32, 33), module, RadioMusic::LED_2_LIGHT));
-		addChild(createLight<MediumLight<RedLight>>(Vec(45, 33), module, RadioMusic::LED_3_LIGHT));
+		addChild(createLight<MediumLight<RedLight>>(Vec(6, 33), module, RadioMusic::LED_LIGHT));
+		addChild(createLight<MediumLight<RedLight>>(Vec(19, 33), module, RadioMusic::LED_LIGHT + 1));
+		addChild(createLight<MediumLight<RedLight>>(Vec(32, 33), module, RadioMusic::LED_LIGHT + 2));
+		addChild(createLight<MediumLight<RedLight>>(Vec(45, 33), module, RadioMusic::LED_LIGHT + 3));
 
 		addParam(createParam<Davies1900hBlackKnob>(Vec(12, 49), module, RadioMusic::STATION_PARAM));
 		addParam(createParam<Davies1900hBlackKnob>(Vec(12, 131), module, RadioMusic::START_PARAM));
@@ -1179,7 +1109,7 @@ struct RadioMusicWidget : ModuleWidget {
 	void appendContextMenu(Menu *menu) override {
 		RadioMusic *module = dynamic_cast<RadioMusic*>(this->module);
 
-		menu->addChild(new MenuEntry);
+		menu->addChild(new MenuSeparator);
 
 		RadioMusicDirDialogItem *rootDirItem = new RadioMusicDirDialogItem;
 		std::stringstream rootDirText, rootDir;
@@ -1198,42 +1128,19 @@ struct RadioMusicWidget : ModuleWidget {
 		selectBankItem->rm = module;
 		menu->addChild(selectBankItem);
 
-		RadioMusicClearCurrentBankItem *clearCurrentBankItem = new RadioMusicClearCurrentBankItem();
-		clearCurrentBankItem->text = "Clear Current Bank";
-		clearCurrentBankItem->rm = module;
-		menu->addChild(clearCurrentBankItem);
+		menu->addChild(createMenuItem("Clear current Bank", "",
+			[=]() {
+				module->clearCurrentBank();
+			}));
 
-		menu->addChild(new MenuEntry);
+		menu->addChild(new MenuSeparator);
 
-		RadioMusicStereoOutputModeItem *stereoOutputModeItem = new RadioMusicStereoOutputModeItem;
-		stereoOutputModeItem->text = "Stereo Output enabled";
-		stereoOutputModeItem->rm = module;
-		menu->addChild(stereoOutputModeItem);
-
-		RadioMusicPitchModeItem *pitchModeItem = new RadioMusicPitchModeItem;
-		pitchModeItem->text = "Pitch Mode enabled";
-		pitchModeItem->rm = module;
-		menu->addChild(pitchModeItem);
-
-		RadioMusicLoopingEnabledItem *loopingEnabledItem = new RadioMusicLoopingEnabledItem;
-		loopingEnabledItem->text = "Looping enabled";
-		loopingEnabledItem->rm = module;
-		menu->addChild(loopingEnabledItem);
-
-		RadioMusicCrossfadeItem *crossfadeItem = new RadioMusicCrossfadeItem;
-		crossfadeItem->text = "Crossfade enabled";
-		crossfadeItem->rm = module;
-		menu->addChild(crossfadeItem);
-
-		RadioMusicFileSortItem *fileSortItem = new RadioMusicFileSortItem;
-		fileSortItem->text = "Files sorted";
-		fileSortItem->rm = module;
-		menu->addChild(fileSortItem);
-
-		RadioMusicFilesAllowedItem *filesAllowedItem = new RadioMusicFilesAllowedItem;
-		filesAllowedItem->text = "All files allowed";
-		filesAllowedItem->rm = module;
-		menu->addChild(filesAllowedItem);
+		menu->addChild(createBoolPtrMenuItem("Stereo Output enabled", "", &module->stereoOutputMode));
+		menu->addChild(createBoolPtrMenuItem("Pich Mode enabled", "", &module->pitchMode));
+		menu->addChild(createBoolPtrMenuItem("Looping enabled", "", &module->loopingEnabled));
+		menu->addChild(createBoolPtrMenuItem("Crossfade enabled", "", &module->crossfadeEnabled));
+		menu->addChild(createBoolPtrMenuItem("Files sorted", "", &module->sortFiles));
+		menu->addChild(createBoolPtrMenuItem("All files allowed", "", &module->allowAllFiles));
 	}
 };
 
