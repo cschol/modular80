@@ -350,14 +350,25 @@ struct RadioMusic : Module {
 	~RadioMusic();
 
 	void process(const ProcessArgs &args) override;
-	void onReset() override;
+	void onReset(const ResetEvent& e) override;
+	void onAdd(const AddEvent& e) override;
 
 	void clearCurrentBank();
+	void saveCurrentBankToPatchStorage();
+	void removeAudioPoolFromPatchStorage();
+
+	size_t getNumBanks() const {
+		return scanner.banks.size();
+	};
+	size_t getCurrentObjectPoolSize() const {
+		return currentObjectPool->objects.size();
+	};
 
 	// Context menu
 	bool loadFiles;
 	bool scanFiles;
 	bool selectBank;
+	std::string audioPoolLocation;
 
 	// Settings
 	bool stereoOutputMode;
@@ -451,6 +462,8 @@ private:
 	void threadedLoad();
 	void resetCurrentPlayer(float start);
 
+	FileScanner scanner;
+
 	AudioPlayer audioPlayer1;
 	AudioPlayer audioPlayer2;
 
@@ -481,8 +494,6 @@ private:
 	dsp::SampleRateConverter<2> outputSrc;
 	dsp::DoubleRingBuffer<dsp::Frame<2>, 256> outputBuffer;
 
-	FileScanner scanner;
-
 	const int BLOCK_SIZE = 16;
 
 	std::mutex mutex;
@@ -493,10 +504,10 @@ private:
 
 	std::atomic<bool> loadingFiles;
 	std::atomic<bool> filesLoaded;
-	std::atomic<bool> loadError;
 	std::atomic<bool> abortLoad;
 	std::atomic<bool> scanAudioFiles;
 	std::atomic<bool> loadAudioFiles;
+	std::atomic<bool> showError;
 };
 
 // Custom ParamQuantity to handle modal behavior of Start parameter
@@ -527,7 +538,9 @@ RadioMusic::RadioMusic() {
 	config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
 	configParam(STATION_PARAM, 0.0f, 1.0f, 0.0f, "Station");
+	paramQuantities[STATION_PARAM]->displayMultiplier = 5.0f;
 	configParam<StartParamQuantity>(START_PARAM, 0.0f, 1.0f, 0.0f, "Start");
+
 	configButton(RESET_PARAM, "Reset");
 
 	configInput(STATION_INPUT, "Station");
@@ -545,7 +558,7 @@ RadioMusic::RadioMusic() {
 
 	worker = std::make_shared<std::thread>(&RadioMusic::workerThread, this);
 
-	onReset();
+	init();
 }
 
 RadioMusic::~RadioMusic() {
@@ -556,11 +569,26 @@ RadioMusic::~RadioMusic() {
 	worker->join();
 }
 
-void RadioMusic::onReset() {
+void RadioMusic::onReset(const ResetEvent& e) {
 	init();
 }
 
+
+void RadioMusic::onAdd(const AddEvent& e) {
+	// Load files from audiopool as module is added to patch.
+	const std::string audiopool = system::join(getPatchStorageDirectory(), "audiopool");
+	if (system::exists(audiopool)) {
+		audioPoolLocation = audiopool;
+		rootDir = ""; // clear rootDir setting when using audiopool in Patch Storage.
+	} else {
+		// No patch storage. Use rootDir (if defined).
+		audioPoolLocation = rootDir;
+	}
+	scanFiles = true;
+}
+
 void RadioMusic::init() {
+	audioPoolLocation = "";
 	prevIndex = -1;
 	tick = 0;
 	elapsedMs = 0;
@@ -578,10 +606,10 @@ void RadioMusic::init() {
 
 	filesLoaded = false;
 	loadingFiles = false;
-	loadError = false;
 	abortLoad = false;
 	scanAudioFiles = false;
 	loadAudioFiles = false;
+	showError = false;
 
 	// Settings
 	stereoOutputMode = false;
@@ -609,13 +637,14 @@ void RadioMusic::init() {
 }
 
 void RadioMusic::threadedScan() {
-	if (rootDir.empty()) {
+	if (audioPoolLocation.empty()) {
 		WARN("No root directory defined. Scan failed.");
+		showError = true;
 		return;
 	}
 
 	scanner.reset();
-	scanner.scan(rootDir, sortFiles, !allowAllFiles);
+	scanner.scan(audioPoolLocation, sortFiles, !allowAllFiles);
 	if (scanner.banks.size() == 0) {
 		return;
 	}
@@ -649,6 +678,7 @@ void RadioMusic::workerThread() {
 void RadioMusic::threadedLoad() {
 	if (scanner.banks.empty()) {
 		WARN("No banks available. Failed to load audio files.");
+		showError = true;
 		return;
 	}
 
@@ -687,12 +717,12 @@ void RadioMusic::threadedLoad() {
 				tmpObjectPool->memoryUsage += memory;
 			} else {
 				WARN("Bank memory limit of %ld Bytes exceeded. Aborting loading of audio objects.", MAX_BANK_SIZE);
-				loadError = true;
+				showError = true;
 				break;
 			}
 		} else {
 			WARN("Failed to load object %d %s", i, files[i].c_str());
-			loadError = true;
+			showError = true;
 		}
 	}
 
@@ -716,20 +746,67 @@ void RadioMusic::resetCurrentPlayer(float start) {
 	currentPlayer->resetTo(pos);
 }
 
+void RadioMusic::removeAudioPoolFromPatchStorage() {
+	const std::string audiopool = system::join(getPatchStorageDirectory(), "audiopool");
+	if (system::exists(audiopool)) {
+		if (!system::removeRecursively(audiopool)) {
+			WARN("Failed to remove audiopool: %s", audiopool.c_str());
+			showError = true;
+		}
+	}
+}
+
 void RadioMusic::clearCurrentBank() {
-	currentObjectPool->clear();
-	previousPlayer->reset();
-	currentPlayer->reset();
-	scanner.banks[currentBank].clear();
+	if (currentObjectPool) currentObjectPool->clear();
+	if (tmpObjectPool) tmpObjectPool->clear();
+	if (previousPlayer) previousPlayer->reset();
+	if (currentPlayer) currentPlayer->reset();
+
+	// Delete audio pool from patch storage if it exists.
+	removeAudioPoolFromPatchStorage();
+
+	audioPoolLocation = "";
+	rootDir = "";
 
 	for (int i = 0; i < 4; i++) {
 		lights[LED_LIGHT+i].value = 0.0f;
 	}
 }
 
+void RadioMusic::saveCurrentBankToPatchStorage() {
+	if (scanner.banks.size() == 0) return;
+
+	std::string audiopool = system::join(getPatchStorageDirectory(), "audiopool");
+	if (system::exists(audiopool)) {
+		if (!system::removeRecursively(audiopool)) {
+			WARN("Failed to remove existing audiopool: %s", audiopool.c_str());
+			showError = true;
+			return;
+		}
+	}
+	audiopool = system::join(createPatchStorageDirectory(), "audiopool");
+	if (!system::createDirectory(audiopool)) {
+		WARN("Creating audiopool failed: %s", audiopool.c_str());
+		showError = true;
+		return;
+	};
+
+	for (auto& f : scanner.banks[currentBank]) {
+		if (!system::copy(f, audiopool)) {
+			WARN("Failed to copy file: %s", f.c_str());
+			showError = true;
+		}
+	}
+
+	// Point root directory to audio pool in Patch Storage and rescan.
+	audioPoolLocation = audiopool;
+	rootDir = "";
+	scanFiles = true;
+}
+
 void RadioMusic::process(const ProcessArgs &args) {
 
-	if (rootDir.empty()) {
+	if (audioPoolLocation.empty()) {
 		// No files loaded yet. Idle.
 		return;
 	}
@@ -765,7 +842,6 @@ void RadioMusic::process(const ProcessArgs &args) {
 		tmp = currentObjectPool;
 		currentObjectPool = tmpObjectPool;
 		tmpObjectPool = tmp;
-
 		currentPlayer->reset(); // Reset current player to use new audio
 		outputBuffer.clear();   // Clear output buffer to start fresh
 		prevIndex = -1; // Force channel change detection upon loading files
@@ -779,7 +855,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 		// Bank is selected via Reset button
 		if (rstButtonTrigger.process(params[RESET_PARAM].getValue())) {
 			currentBank++;
-			currentBank %= scanner.banks.size();
+			currentBank %= getNumBanks();
 		}
 
 		// Show bank selection in LED bar
@@ -807,7 +883,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 		currentPlayer->setPlaybackSpeed(scaledSpeed);
 	}
 
-	if (currentObjectPool->objects.size() > 0 && (rstButtonTrigger.process(params[RESET_PARAM].getValue()) ||
+	if (getCurrentObjectPoolSize() > 0 && (rstButtonTrigger.process(params[RESET_PARAM].getValue()) ||
 		(inputs[RESET_INPUT].isConnected() && rstInputTrigger.process(inputs[RESET_INPUT].getVoltage())))) {
 
 		fadeOutGain = 1.0f;
@@ -824,20 +900,18 @@ void RadioMusic::process(const ProcessArgs &args) {
 	// Channel knob & input
 	const float channel = clamp(params[STATION_PARAM].getValue() + inputs[STATION_INPUT].getVoltage()/5.0f, 0.0f, 1.0f);
 	const int index = \
-		clamp(static_cast<int>(rescale(channel, 0.0f, 1.0f, 0.0f, static_cast<float>(currentObjectPool->objects.size()))),
-			0, currentObjectPool->objects.size() - 1);
+		clamp(static_cast<int>(rescale(channel, 0.0f, 1.0f, 0.0f, static_cast<float>(getCurrentObjectPoolSize()))),
+			0, getCurrentObjectPoolSize() - 1);
 
 	// Channel switch detection
-	if (currentObjectPool->objects.size() > 0 && index != prevIndex) {
-
+	if (getCurrentObjectPoolSize() > 0 && index != prevIndex) {
 		AudioPlayer *tmp;
 		tmp = previousPlayer;
 		previousPlayer = currentPlayer;
 		currentPlayer = tmp;
 
-		if (index < (int)currentObjectPool->objects.size()) {
+		if (index < (int)getCurrentObjectPoolSize()) {
 			currentPlayer->load(currentObjectPool->objects[index]);
-
 			if (!pitchMode) {
 				unsigned long pos = currentObjectPool->objects[index]->currentPos + \
 					(currentPlayer->object()->channels * elapsedMs * currentObjectPool->objects[index]->sampleRate) / 1000;
@@ -855,8 +929,8 @@ void RadioMusic::process(const ProcessArgs &args) {
 
 		crossfade = crossfadeEnabled;
 
-		// Different number of channels while crossfading leads to audible artifacts.
 		if (previousPlayer->object()) {
+			// Different number of channels while crossfading leads to audible artifacts.
 			if (currentPlayer->object()->channels != previousPlayer->object()->channels) {
 				crossfade = false;
 			}
@@ -969,49 +1043,56 @@ void RadioMusic::process(const ProcessArgs &args) {
 	// Output processing & metering
 	if (!outputBuffer.empty()) {
 		outputs[OUT_OUTPUT].setChannels(stereoOutputMode ? 2 : 1);
-		dsp::Frame<2> frame = outputBuffer.shift();
 
-		// Stereo mode
-		if (stereoOutputMode) {
-			if (currentPlayer->object()->channels == 2) {
-				for (unsigned int c = 0; c < 2; c++) {
-					outputs[OUT_OUTPUT].setVoltage(frame.samples[c], c);
+		if (currentPlayer->object()) {
+
+			dsp::Frame<2> frame = outputBuffer.shift();
+
+			// Stereo mode
+			if (stereoOutputMode) {
+				if (currentPlayer->object()->channels == 2) {
+					for (unsigned int c = 0; c < 2; c++) {
+						outputs[OUT_OUTPUT].setVoltage(frame.samples[c], c);
+					}
+				} else {
+					// For mono audio files, duplicate mono audio across both channels.
+					if (currentPlayer->object()->channels == 1) {
+						outputs[OUT_OUTPUT].setVoltage(frame.samples[0], 0);
+						outputs[OUT_OUTPUT].setVoltage(frame.samples[0], 1);
+					}
 				}
+			// Mono mode
 			} else {
-				// For mono audio files, duplicate mono audio across both channels.
-				if (currentPlayer->object()->channels == 1) {
-					outputs[OUT_OUTPUT].setVoltage(frame.samples[0], 0);
-					outputs[OUT_OUTPUT].setVoltage(frame.samples[0], 1);
+				if (currentPlayer->object()->channels == 2) {
+					// L/R channels summed to mono.
+					outputs[OUT_OUTPUT].setVoltage((frame.samples[0] + frame.samples[1])/currentPlayer->object()->channels);
+				} else {
+					if (currentPlayer->object()->channels == 1) {
+						outputs[OUT_OUTPUT].setVoltage(frame.samples[0]);
+					}
 				}
 			}
-		// Mono mode
+
+			// Disable VU Meter in Bank Selection mode.
+			if (!selectBank) {
+				const float sampleTime = args.sampleTime;
+				vumeter.process(sampleTime, frame.samples[0]/5.0f);
+
+				if (tick % 512 == 0) {
+					for (int i = 0; i < 4; i++){
+						float b = vumeter.getBrightness(-6.0f * (i+1), 0.0f * i);
+						lights[LED_LIGHT + 3 - i].setBrightness(b);
+					}
+				}
+			}
 		} else {
-			if (currentPlayer->object()->channels == 2) {
-				// L/R channels summed to mono.
-				outputs[OUT_OUTPUT].setVoltage((frame.samples[0] + frame.samples[1])/currentPlayer->object()->channels);
-			} else {
-				if (currentPlayer->object()->channels == 1) {
-					outputs[OUT_OUTPUT].setVoltage(frame.samples[0]);
-				}
-			}
-		}
-
-		// Disable VU Meter in Bank Selection mode.
-		if (!selectBank) {
-			const float sampleTime = args.sampleTime;
-			vumeter.process(sampleTime, frame.samples[0]/5.0f);
-
-			if (tick % 512 == 0) {
-				for (int i = 0; i < 4; i++){
-					float b = vumeter.getBrightness(-6.0f * (i+1), 0.0f * i);
-					lights[LED_LIGHT + 3 - i].setBrightness(b);
-				}
-			}
+			outputs[OUT_OUTPUT].setVoltage(0, 0);
+			outputs[OUT_OUTPUT].setVoltage(0, 1);
 		}
 	}
 
 	// Indicator for loading audio files and errors during load.
-	if (loadingFiles || loadError) {
+	if (loadingFiles || showError) {
 		static bool initTimer(true);
 		static unsigned long timerStart(0);
 		static bool toggle(false);
@@ -1021,7 +1102,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 		if (loadingFiles) {
 			blinkTime = 1000u;
 		}
-		if (loadError) {
+		if (showError) {
 			blinkTime = 200u;
 		}
 
@@ -1039,10 +1120,10 @@ void RadioMusic::process(const ProcessArgs &args) {
 			ledTimerMs = 0;
 			toggle = !toggle;
 
-			if (loadError && ++numBlinks > 10) {
+			if (showError && ++numBlinks > 10) {
 				numBlinks = 0;
 				toggle = false;
-				loadError = false;
+				showError = false;
 			}
 		}
 	}
@@ -1050,14 +1131,23 @@ void RadioMusic::process(const ProcessArgs &args) {
 
 struct RadioMusicDirDialogItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
+	void onAction(const ActionEvent &e) override {
 
 		const std::string dir = \
 			rm->rootDir.empty() ? asset::user("") : rm->rootDir;
 		char *path = osdialog_file(OSDIALOG_OPEN_DIR, dir.c_str(), NULL, NULL);
 		if (path) {
 			rm->rootDir = std::string(path);
+
+			// New root directory selected. Scan content.
+			// `rootDir` is saved as a setting.
+			// `audioPoolLocation` defines actual location used.
+			rm->audioPoolLocation = rm->rootDir;
 			rm->scanFiles = true;
+
+			// Remove current audiopool in Patch Storage (if it exists).
+			rm->removeAudioPoolFromPatchStorage();
+
 			free(path);
 		}
 	}
@@ -1065,11 +1155,19 @@ struct RadioMusicDirDialogItem : MenuItem {
 
 struct RadioMusicSelectBankItem : MenuItem {
 	RadioMusic *rm;
-	void onAction(const event::Action &e) override {
+	int currentBank;
+	void onAction(const ActionEvent &e) override {
 		rm->selectBank = !rm->selectBank;
-
 		if (rm->selectBank == false) {
-			rm->loadFiles = true;
+			if (currentBank != rm->currentBank) {
+				// Remove current audiopool in Patch Storage (if it exists).
+				rm->removeAudioPoolFromPatchStorage();
+
+				rm->loadFiles = true;
+			}
+		} else {
+			// When entering bank selection mode, store current bank to detect bank changes.
+			currentBank = rm->currentBank;
 		}
 	}
 	void step() override {
@@ -1111,32 +1209,46 @@ struct RadioMusicWidget : ModuleWidget {
 
 		menu->addChild(new MenuSeparator);
 
-		RadioMusicDirDialogItem *rootDirItem = new RadioMusicDirDialogItem;
-		std::stringstream rootDirText, rootDir;
-		if (module->rootDir.empty()) {
-			rootDir << "<No root directory selected. Click to select.>";
+		RadioMusicDirDialogItem *audioPoolLocationItem = new RadioMusicDirDialogItem;
+		std::stringstream audioPoolLocationText, audioPoolLocation;
+		if (module->audioPoolLocation.empty()) {
+			audioPoolLocation << "<No root directory selected. Click to select.>";
 		} else {
-			rootDir << module->rootDir;
+			if (system::getFilename(module->audioPoolLocation) == "audiopool") {
+				audioPoolLocation << "Patch Storage (" << module->audioPoolLocation << ")";
+			} else {
+				audioPoolLocation << module->audioPoolLocation;
+			}
 		}
-		rootDirText << "Root Directory: " << rootDir.str();
-		rootDirItem->text = rootDirText.str();
-		rootDirItem->rm = module;
-		menu->addChild(rootDirItem);
+		audioPoolLocationText << "Root Directory: " << audioPoolLocation.str();
+		audioPoolLocationItem->text = audioPoolLocationText.str();
+		audioPoolLocationItem->rm = module;
+		menu->addChild(audioPoolLocationItem);
 
 		RadioMusicSelectBankItem *selectBankItem = new RadioMusicSelectBankItem;
 		selectBankItem->text = "";
 		selectBankItem->rm = module;
+		selectBankItem->disabled = (module->getNumBanks() < 2);
 		menu->addChild(selectBankItem);
 
-		menu->addChild(createMenuItem("Clear current Bank", "",
+		MenuItem* clearBankItem = createMenuItem("Clear current Bank", "",
 			[=]() {
 				module->clearCurrentBank();
-			}));
+			});
+		clearBankItem->disabled = (module->getCurrentObjectPoolSize() == 0);
+		menu->addChild(clearBankItem);
+
+		MenuItem* saveBankItem = createMenuItem("Save current Bank to Patch Storage", "",
+			[=]() {
+				module->saveCurrentBankToPatchStorage();
+			});
+		saveBankItem->disabled = (module->rootDir == "");
+		menu->addChild(saveBankItem);
 
 		menu->addChild(new MenuSeparator);
 
 		menu->addChild(createBoolPtrMenuItem("Stereo Output enabled", "", &module->stereoOutputMode));
-		menu->addChild(createBoolPtrMenuItem("Pich Mode enabled", "", &module->pitchMode));
+		menu->addChild(createBoolPtrMenuItem("Pitch Mode enabled", "", &module->pitchMode));
 		menu->addChild(createBoolPtrMenuItem("Looping enabled", "", &module->loopingEnabled));
 		menu->addChild(createBoolPtrMenuItem("Crossfade enabled", "", &module->crossfadeEnabled));
 		menu->addChild(createBoolPtrMenuItem("Files sorted", "", &module->sortFiles));

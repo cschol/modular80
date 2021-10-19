@@ -93,6 +93,7 @@ A collection of sample packs to load can be found on Tom Whitwell's [GitHub page
 - Visual indicator (flashing LEDs) to indicate files are being loaded (all LEDs blink slow) and an error occurred during file loading (all LEDs blink fast).
 - All implemented options are available via the context menu (instead of a settings file).
 - `Stereo Mode` is accessed via context menu and enables stereo output for stereo files (dual mono for mono files) via a polyphonic cable.
+- Allow saving of current bank to Rack Patch Storage.
 
 # Build instructions
 

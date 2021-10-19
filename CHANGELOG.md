@@ -1,4 +1,4 @@
-### 2.0.0 (2021-10-15)
+### 2.0.0 (2021-10-18)
 
 - Update to Rack v2
 - Add root directory location to context menu
@@ -8,6 +8,7 @@
 - Change bank size limit from file size to memory limit (2GB in RAM per bank)
 - Allow current pool of audio files in root directory to continue to play while new pool of audio files is loaded (by loading and background and swapping)
 - Set different default values and labels for Start knob in Pitch mode
+- Allow saving of current **bank** of audio files to be saved to Patch Storage.
 
 ### 1.0.3 (2021-05-13)
 
