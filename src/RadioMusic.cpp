@@ -1180,7 +1180,7 @@ struct RadioMusicSelectBankItem : MenuItem {
 struct RadioMusicWidget : ModuleWidget {
 	RadioMusicWidget(RadioMusic *module) {
 		setModule(module);
-		setPanel(APP->window->loadSvg(asset::plugin(pluginInstance, "res/Radio.svg")));
+		setPanel(createPanel(asset::plugin(pluginInstance, "res/Radio.svg")));
 
 		addChild(createWidget<ScrewSilver>(Vec(14, 0)));
 
