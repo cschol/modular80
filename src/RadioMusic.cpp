@@ -716,7 +716,7 @@ void RadioMusic::threadedLoad() {
 				tmpObjectPool->objects.push_back(std::move(object));
 				tmpObjectPool->memoryUsage += memory;
 			} else {
-				WARN("Bank memory limit of %ld Bytes exceeded. Aborting loading of audio objects.", MAX_BANK_SIZE);
+				WARN("Bank memory limit of %ld Bytes exceeded. Aborting loading of audio objects.", (long int)MAX_BANK_SIZE);
 				showError = true;
 				break;
 			}
