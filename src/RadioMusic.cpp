@@ -21,13 +21,11 @@ class FileScanner {
 public:
 
 FileScanner() :
-  scanDepth(0),
-  bankCount(0)
+  scanDepth(0)
   {}
 ~FileScanner() {};
 
 void reset() {
-	bankCount = 0;
 	scanDepth = 0;
 	banks.clear();
 }
@@ -57,7 +55,7 @@ void scan(std::string& root, const bool sort = false, const bool filter = true) 
 				continue;
 			}
 
-			if (bankCount > MAX_NUM_BANKS) {
+			if (banks.size() > MAX_NUM_BANKS) {
 				WARN("Max number of banks reached. Ignoring subdirectories.");
 				return;
 			}
@@ -82,14 +80,12 @@ void scan(std::string& root, const bool sort = false, const bool filter = true) 
 	}
 
 	if (!files.empty()) {
-		bankCount++;
 		banks.push_back(files);
 	}
 	scanDepth--;
 }
 
 int scanDepth;
-int bankCount;
 std::vector< std::vector<std::string> > banks;
 
 };
@@ -323,6 +319,17 @@ struct AudioObjectPool {
 };
 
 
+struct MsTimer : dsp::Timer {
+	void process() {
+		Timer::process(1);
+	}
+
+	unsigned long elapsedTime() {
+		return static_cast<unsigned long>(time);
+	}
+};
+
+
 struct RadioMusic : Module {
 	enum ParamIds {
 		STATION_PARAM,
@@ -477,17 +484,19 @@ private:
 
 	dsp::SchmittTrigger rstButtonTrigger;
 	dsp::SchmittTrigger rstInputTrigger;
+	dsp::PulseGenerator rstLedPulse;
 
 	int prevIndex;
 	unsigned long tick;
-	unsigned long elapsedMs;
 	bool crossfade;
 	bool fadeout;
 	float fadeOutGain;
 	float xfadeGain1;
 	float xfadeGain2;
 	bool flashResetLed;
-	unsigned long ledTimerMs;
+
+	MsTimer playTimer;
+    MsTimer ledTimer;
 
 	dsp::VuMeter2 vumeter;
 
@@ -591,14 +600,12 @@ void RadioMusic::init() {
 	audioPoolLocation = "";
 	prevIndex = -1;
 	tick = 0;
-	elapsedMs = 0;
 	crossfade = false;
 	fadeout = false;
 	fadeOutGain = 1.0f;
 	xfadeGain1 = 0.0f;
 	xfadeGain2 = 1.0f;
 	flashResetLed = false;
-	ledTimerMs = 0;
 
 	selectBank = false;
 	loadFiles = false;
@@ -689,21 +696,21 @@ void RadioMusic::threadedLoad() {
 	currentBank = clamp(currentBank, 0, (int)scanner.banks.size()-1);
 
 	const std::vector<std::string> files = scanner.banks[currentBank];
-	for (unsigned int i = 0; i < files.size(); ++i) {
+	for (auto &f : files) {
 		std::shared_ptr<AudioObject> object;
 
 		// Quickly determine if file is WAV file
-		if (drwav_init_file(&wav, files[i].c_str(), nullptr)) {
+		if (drwav_init_file(&wav, f.c_str(), nullptr)) {
 			object = std::make_shared<WavAudioObject>();
 			if (drwav_uninit(&wav) != DRWAV_SUCCESS) {
-				FATAL("Failed to uninitialize object %d %s", i, files[i].c_str());
+				FATAL("Failed to uninitialize object %s", f.c_str());
 			}
 		} else { // if load fails, interpret as raw audio
 			object = std::make_shared<RawAudioObject>();
 		}
 
 		// Actually load files
-		if (object->load(files[i])) {
+		if (object->load(f)) {
 			// Abort the current load process and release the memory.
 			if (abortLoad) {
 				tmpObjectPool->clear();
@@ -721,7 +728,7 @@ void RadioMusic::threadedLoad() {
 				break;
 			}
 		} else {
-			WARN("Failed to load object %d %s", i, files[i].c_str());
+			WARN("Failed to load object %s", f.c_str());
 			showError = true;
 		}
 	}
@@ -845,7 +852,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 		currentPlayer->reset(); // Reset current player to use new audio
 		outputBuffer.clear();   // Clear output buffer to start fresh
 		prevIndex = -1; // Force channel change detection upon loading files
-		elapsedMs = 0;  // Reset station to beginning
+		playTimer.reset(); // Reset station to beginning
 
 		filesLoaded = false;
 	}
@@ -862,13 +869,12 @@ void RadioMusic::process(const ProcessArgs &args) {
 		for (size_t i = 0; i < 4; i++) {
 			lights[LED_LIGHT+i].value = (1 && (currentBank & 1 << i));
 		}
-		lights[RESET_LIGHT].value = 1.0f;
 	}
 
-	// Keep track of milliseconds of elapsed time
+	// Keep track is ms elapsed.
 	if (tick++ % (static_cast<int>(args.sampleRate)/1000) == 0) {
-		elapsedMs++;
-		ledTimerMs++;
+		playTimer.process();
+		ledTimer.process();
 	}
 
 	// Normal mode: Start knob & input
@@ -914,14 +920,14 @@ void RadioMusic::process(const ProcessArgs &args) {
 			currentPlayer->load(currentObjectPool->objects[index]);
 			if (!pitchMode) {
 				unsigned long pos = currentObjectPool->objects[index]->currentPos + \
-					(currentPlayer->object()->channels * elapsedMs * currentObjectPool->objects[index]->sampleRate) / 1000;
+					(currentPlayer->object()->channels * playTimer.elapsedTime() * currentObjectPool->objects[index]->sampleRate) / 1000;
 				pos = pos % (currentObjectPool->objects[index]->totalSamples / currentObjectPool->objects[index]->channels);
 				currentPlayer->skipTo(pos);
 			} else {
 				currentPlayer->skipTo(0);
 			}
 
-			elapsedMs = 0;
+			playTimer.reset();
 		}
 
 		xfadeGain1 = 0.0f;
@@ -942,27 +948,11 @@ void RadioMusic::process(const ProcessArgs &args) {
 	prevIndex = index;
 
 	// Reset LED
-	if (flashResetLed) {
-		static int initTimer(true);
-		static int timerStart(0);
-
-		if (initTimer) {
-			timerStart = ledTimerMs;
-			initTimer = false;
-		}
-
-		lights[RESET_LIGHT].value = 1.0f;
-
-		if ((ledTimerMs - timerStart) > 50) { // 50ms flash time
-			initTimer = true;
-			ledTimerMs = 0;
-			flashResetLed = false;
-		}
+	if (!selectBank && flashResetLed) {
+		rstLedPulse.trigger(0.050f);
+		flashResetLed = false;
 	}
-
-	if (!flashResetLed && !selectBank) {
-		lights[RESET_LIGHT].value = 0.0f;
-	}
+	lights[RESET_LIGHT].value = (rstLedPulse.process(args.sampleTime)) ? 1.0f : 0.0f;
 
 	// Audio processing
 	if (outputBuffer.empty()) {
@@ -1075,10 +1065,9 @@ void RadioMusic::process(const ProcessArgs &args) {
 
 			// Disable VU Meter in Bank Selection mode.
 			if (!selectBank) {
-				const float sampleTime = args.sampleTime;
-				vumeter.process(sampleTime, frame.samples[0]/5.0f);
+				vumeter.process(args.sampleTime, frame.samples[0]/5.0f);
 
-				if (tick % 512 == 0) {
+				if (ledTimer.elapsedTime() % 16 == 0) {
 					for (int i = 0; i < 4; i++){
 						float b = vumeter.getBrightness(-6.0f * (i+1), 0.0f * i);
 						lights[LED_LIGHT + 3 - i].setBrightness(b);
@@ -1107,7 +1096,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 		}
 
 		if (initTimer) {
-			timerStart = ledTimerMs;
+			timerStart = ledTimer.elapsedTime();
 			initTimer = false;
 		}
 
@@ -1115,9 +1104,8 @@ void RadioMusic::process(const ProcessArgs &args) {
 			lights[LED_LIGHT+i].value = toggle ? 1.0f : 0.0f;
 		}
 
-		if ((ledTimerMs - timerStart) > blinkTime) {
+		if ((ledTimer.elapsedTime() - timerStart) > blinkTime) {
 			initTimer = true;
-			ledTimerMs = 0;
 			toggle = !toggle;
 
 			if (showError && ++numBlinks > 10) {
