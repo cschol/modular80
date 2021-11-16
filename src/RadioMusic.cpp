@@ -321,7 +321,7 @@ struct AudioObjectPool {
 
 struct MsTimer : dsp::Timer {
 	void process() {
-		Timer::process(1);
+		dsp::Timer::process(1);
 	}
 
 	unsigned long elapsedTime() {
