@@ -1,3 +1,6 @@
+### 2.0.1 (2022-01-07)
+- Fix playback behavior in Radio Music to keep playing when station is changed (match hardware).
+
 ### 2.0.0 (2021-10-18)
 
 - Update to Rack v2
