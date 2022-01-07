@@ -319,13 +319,13 @@ struct AudioObjectPool {
 };
 
 
-struct MsTimer : dsp::Timer {
+struct MsTimer : dsp::TTimer<unsigned long> {
 	void process() {
-		dsp::Timer::process(1);
+		dsp::TTimer<unsigned long>::process(1);
 	}
 
 	unsigned long elapsedTime() {
-		return static_cast<unsigned long>(time);
+		return time;
 	}
 };
 
