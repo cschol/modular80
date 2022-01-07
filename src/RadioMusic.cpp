@@ -900,6 +900,8 @@ void RadioMusic::process(const ProcessArgs &args) {
 			resetCurrentPlayer(start);
 		}
 
+		playTimer.reset();
+
 		flashResetLed = true;
 	}
 
@@ -918,16 +920,15 @@ void RadioMusic::process(const ProcessArgs &args) {
 
 		if (index < (int)getCurrentObjectPoolSize()) {
 			currentPlayer->load(currentObjectPool->objects[index]);
+
 			if (!pitchMode) {
-				unsigned long pos = currentObjectPool->objects[index]->currentPos + \
-					(currentPlayer->object()->channels * playTimer.elapsedTime() * currentObjectPool->objects[index]->sampleRate) / 1000;
-				pos = pos % (currentObjectPool->objects[index]->totalSamples / currentObjectPool->objects[index]->channels);
+				unsigned long pos = currentPlayer->object()->currentPos + \
+					(currentPlayer->object()->channels * playTimer.elapsedTime() * currentPlayer->object()->sampleRate) / 1000;
+				pos = pos % (currentPlayer->object()->totalSamples / currentPlayer->object()->channels);
 				currentPlayer->skipTo(pos);
 			} else {
 				currentPlayer->skipTo(0);
 			}
-
-			playTimer.reset();
 		}
 
 		xfadeGain1 = 0.0f;
