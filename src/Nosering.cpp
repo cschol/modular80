@@ -35,7 +35,7 @@ struct Nosering : Module {
 		NUM_LIGHTS
 	};
 
-	Nosering()
+	Nosering(): phase(0)
 	{
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
