@@ -1,3 +1,15 @@
+### 2.0.2 (2026-02-14)
+- Fix Logistiker reset flag bug that could cause delayed reset behavior
+- Improve Logistiker reset logic to work independently of clock input
+- Fix Nosering DAC coefficient precision for accurate voltage output scaling
+- Fix Nosering analog input threshold comparison for more robust invert control
+- Fix Nosering uninitialized variable
+- Fix RadioMusic RAW audio file memory allocation order to prevent potential crashes
+- Improve RadioMusic audio quality with 4-point 3rd-order optimal interpolation (Watte tri-linear)
+- Improve RadioMusic crossfade logic with channel count validation to prevent audio artifacts
+- Enhance RadioMusic thread safety with proper condition variable synchronization
+- Code documentation improvements and error handling enhancements across all modules
+
 ### 2.0.1 (2022-01-07)
 - Fix playback behavior in Radio Music to keep playing when station is changed (match hardware).
 

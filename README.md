@@ -94,6 +94,7 @@ A collection of sample packs to load can be found on Tom Whitwell's [GitHub page
 - All implemented options are available via the context menu (instead of a settings file).
 - `Stereo Mode` is accessed via context menu and enables stereo output for stereo files (dual mono for mono files) via a polyphonic cable.
 - Allow saving of current bank to Rack Patch Storage.
+- High-quality 4-point 3rd-order optimal audio interpolation for superior sound fidelity
 
 # Build instructions
 
@@ -106,7 +107,7 @@ make
 
 # Licenses
 
-All source code in this repository is copyright © 2021 Christoph Scholtes and is licensed under the [GNU General Public License v3.0](LICENSE).
+All source code in this repository is copyright © 2026 Christoph Scholtes and is licensed under the [GNU General Public License v3.0](LICENSE).
 All **graphics** for `Logistiker` and `Nosering` in the `res` directory are copyright © 2021 Christoph Scholtes and licensed under [CC BY-NC-ND 4.0](https://creativecommons.org/licenses/by-nc-nd/4.0/).
 
 All `Radio Music` hardware and software design in the original project is Creative Commons licensed by Tom Whitwell:
