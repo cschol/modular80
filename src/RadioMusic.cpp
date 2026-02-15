@@ -3,6 +3,7 @@
 #include <thread>
 #include <condition_variable>
 #include <chrono>
+#include <algorithm>
 
 #include "osdialog.h"
 
@@ -23,7 +24,8 @@ public:
 
 FileScanner() :
   scanDepth(0),
-  bankCount(0)
+  bankCount(0),
+  banks()
   {}
 ~FileScanner() {};
 
@@ -34,9 +36,16 @@ void reset() {
 }
 
 static bool isSupportedAudioFormat(const std::string& path) {
-	const std::string tmpF = string::lowercase(path);
-	return (string::endsWith(tmpF, ".wav") ||
-			string::endsWith(tmpF, ".raw"));
+	// Need at least 4 characters for extension (.wav or .raw)
+	static const size_t MIN_EXTENSION_LENGTH = 4;
+	if (path.size() < MIN_EXTENSION_LENGTH) {
+		return false;
+	}
+
+	std::string suffix = path.substr(path.size() - MIN_EXTENSION_LENGTH);
+	std::transform(suffix.begin(), suffix.end(), suffix.begin(), ::tolower);
+
+	return (suffix == ".wav" || suffix == ".raw");
 }
 
 void scan(const std::string& root, const bool sort = false, const bool filter = true) {
@@ -50,7 +59,7 @@ void scan(const std::string& root, const bool sort = false, const bool filter = 
         std::sort(entries.begin(), entries.end());
 	}
 
-	for (std::string &entry : entries) {
+	for (const std::string &entry : entries) {
 		if (system::isDirectory(entry)) {
 			if (string::startsWith(entry, "SPOTL") ||
 			    string::startsWith(entry, "TRASH") ||
@@ -76,10 +85,11 @@ void scan(const std::string& root, const bool sort = false, const bool filter = 
 	}
 
 	if (filter) {
-		for (std::vector<std::string>::iterator it = files.begin(); it != files.end(); /* */) {
-			if (!isSupportedAudioFormat(*it)) it = files.erase(it);
-			else ++it;
-		}
+		files.erase(
+			std::remove_if(files.begin(), files.end(),
+				[](const std::string& f) { return !isSupportedAudioFormat(f); }),
+			files.end()
+		);
 	}
 
 	if (!files.empty()) {
@@ -91,7 +101,7 @@ void scan(const std::string& root, const bool sort = false, const bool filter = 
 
 int scanDepth;
 int bankCount;
-std::vector< std::vector<std::string> > banks;
+std::vector<std::vector<std::string>> banks;
 
 };
 
@@ -109,9 +119,10 @@ AudioObject() :
   bytesPerSample(2),
   totalSamples(0),
   samples(nullptr),
-  peak(0.0f) {};
+  peak(0.0f)
+  {}
 
-virtual ~AudioObject() {};
+virtual ~AudioObject() {}
 
 virtual bool load(const std::string &path) = 0;
 
@@ -133,12 +144,12 @@ public:
 
 WavAudioObject() : AudioObject() {
 	bytesPerSample = 4;
-};
+}
 ~WavAudioObject() {
 	if (samples) {
 		drwav_free(samples, nullptr);
 	}
-};
+}
 
 bool load(const std::string &path) override {
 	drwav_uint64 totalFrames(0);
@@ -152,7 +163,8 @@ bool load(const std::string &path) override {
 
 	if (samples) {
 		for (size_t i = 0; i < totalSamples; ++i) {
-			if (samples[i] > peak) peak = samples[i];
+			float absSample = std::abs(samples[i]);
+			if (absSample > peak) peak = absSample;
 		}
 	}
 
@@ -169,7 +181,7 @@ RawAudioObject() : AudioObject() {
 	channels = 1;
 	sampleRate = 44100;
 	bytesPerSample = 2;
-};
+}
 ~RawAudioObject() {
 	if (samples) {
 		free(samples);
@@ -184,21 +196,35 @@ bool load(const std::string &path) override {
 	if (wav) {
 		fseek(wav, 0, SEEK_END);
 		const long fsize = ftell(wav);
+
+		// Check for ftell errors and unreasonable file sizes
+		if (fsize <= 0 || fsize > 2147483647L) { // Max 2GB for safety
+			WARN("Invalid file size: %ld bytes for %s", fsize, filePath.c_str());
+			fclose(wav);
+			return false;
+		}
+
 		rewind(wav);
 
 		int16_t *rawSamples = (int16_t*)malloc(sizeof(int16_t) * fsize/bytesPerSample);
 		if (rawSamples) {
 			const long samplesRead = fread(rawSamples, (size_t)sizeof(int16_t), fsize/bytesPerSample, wav);
-		if (samplesRead != fsize/(long)bytesPerSample) { WARN("Failed to read entire file"); }
+			if (samplesRead != fsize/(long)bytesPerSample) { WARN("Failed to read entire file"); }
+
+			// FIX: Allocate samples buffer BEFORE using it
+			totalSamples = fsize/bytesPerSample;
+			samples = (float*)malloc(sizeof(float) * totalSamples);
+
 			if (samples) {
 				for (size_t i = 0; i < totalSamples; ++i) {
-					samples[i] = static_cast<float>(rawSamples[i]);
-					if (samples[i] > peak) peak = samples[i];
+					samples[i] = static_cast<float>(rawSamples[i]) / 32768.0f;
+					if (std::abs(samples[i]) > peak) peak = std::abs(samples[i]);
 				}
+				free(rawSamples);
 			} else {
 				WARN("Failed to allocate memory for samples");
+				free(rawSamples); // Free rawSamples before returning
 				fclose(wav);
-				free(rawSamples);
 				return false;
 			}
 		} else {
@@ -208,7 +234,6 @@ bool load(const std::string &path) override {
 		}
 
 		fclose(wav);
-		free(rawSamples);
 
 	} else {
 		WARN("Failed to load file: %s", filePath.c_str());
@@ -225,7 +250,7 @@ bool load(const std::string &path) override {
     Provides excellent quality with minimal computational overhead.
     Better frequency response and less aliasing than Hermite.
 */
-inline float interpolateOptimal4Point(const float* samples, unsigned long intPos, float fracPos, drwav_uint64 totalSamples) {
+inline float interpolateOptimal4Point(const float* samples, const unsigned long intPos, const float fracPos, const drwav_uint64 totalSamples) {
     if (samples == nullptr || intPos >= totalSamples) {
         return 0.0f;
     }
@@ -256,8 +281,8 @@ public:
 AudioPlayer() :
   startPos(0.0f),
   playbackSpeed(1.0f)
-{};
-~AudioPlayer() {};
+{}
+~AudioPlayer() {}
 
 void load(std::shared_ptr<AudioObject> object) {
 	audio = std::move(object);
@@ -265,48 +290,69 @@ void load(std::shared_ptr<AudioObject> object) {
 
 void skipTo(float pos) {
 	if (audio) {
-		audio->currentPos = pos;
+		// Clamp position to valid range [0, totalSamples)
+		if (pos < 0.0f) {
+			audio->currentPos = 0.0f;
+		} else if (pos >= audio->totalSamples) {
+			audio->currentPos = audio->totalSamples > 0 ? audio->totalSamples - 1.0f : 0.0f;
+		} else {
+			audio->currentPos = pos;
+		}
 	}
 }
 
-float play(unsigned int channel) {
-	float sample(0.0f);
-
-	if (audio) {
-		if (channel < audio->channels) {
-			if ((audio->currentPos + channel) < audio->totalSamples) {
-				const unsigned long intPos = static_cast<unsigned long>(audio->currentPos + channel);
-				const float fracPos = (audio->currentPos + channel) - intPos;
-				// Use cubic Hermite interpolation for higher audio quality
-				sample = interpolateOptimal4Point(audio->samples, intPos, fracPos, audio->totalSamples);
-			}
-		}
+float play(unsigned int channel) const {
+	if (!audio) {
+		return 0.0f;
 	}
 
-	return sample;
+	if (channel >= audio->channels) {
+		return 0.0f;
+	}
+
+	const float pos = audio->currentPos + channel;
+	if (pos >= audio->totalSamples) {
+		return 0.0f;
+	}
+
+	const unsigned long intPos = static_cast<unsigned long>(pos);
+	const float fracPos = pos - intPos;
+
+	// Only use interpolation if we have a fractional position (pitch mode)
+	// In normal mode (1x speed), fracPos will be 0 and we can skip the expensive interpolation
+	if (fracPos < 0.001f) {
+		// Fast path: no interpolation needed
+		return audio->samples[intPos];
+	}
+
+	// Slow path: use interpolation for pitch shifting
+	return interpolateOptimal4Point(audio->samples, intPos, fracPos, audio->totalSamples);
 }
 
 void advance(bool repeat, bool pitchMode) {
-	if (audio) {
+	if (!audio) {
+		return;
+	}
 
-		float nextPos;
-		if (pitchMode) {
-			const float speed = playbackSpeed;
-			nextPos = audio->currentPos + speed * static_cast<float>(audio->channels);
-		} else {
-			nextPos = audio->currentPos + audio->channels;
-		}
+	// Cache frequently accessed values
+	const unsigned int channels = audio->channels;
+	const float maxPos = static_cast<float>(audio->totalSamples);
 
-		const float maxPos = static_cast<float>(audio->totalSamples);
-		if (nextPos >= maxPos) {
-			if (repeat) {
-				audio->currentPos = startPos;
-			} else {
-				audio->currentPos = maxPos;
-			}
+	float nextPos;
+	if (pitchMode) {
+		nextPos = audio->currentPos + playbackSpeed * static_cast<float>(channels);
+	} else {
+		nextPos = audio->currentPos + channels;
+	}
+
+	if (nextPos >= maxPos) {
+		if (repeat) {
+			audio->currentPos = startPos;
 		} else {
-			audio->currentPos = nextPos;
+			audio->currentPos = maxPos;
 		}
+	} else {
+		audio->currentPos = nextPos;
 	}
 }
 
@@ -317,12 +363,8 @@ void resetTo(float pos) {
 	}
 }
 
-bool ready() {
-	if (audio) {
-		return audio->totalSamples > 0;
-	} else {
-		return false;
-	}
+bool ready() const {
+	return audio && audio->totalSamples > 0;
 }
 
 void reset() {
@@ -335,7 +377,7 @@ void setPlaybackSpeed(const float speed) {
 	playbackSpeed = speed;
 }
 
-std::shared_ptr<AudioObject> object() {
+std::shared_ptr<AudioObject> object() const {
 	return audio;
 }
 
@@ -414,79 +456,8 @@ struct RadioMusic : Module {
 	std::string rootDir;
 	int currentBank;
 
-	json_t *dataToJson() override {
-		json_t *rootJ = json_object();
-
-		// Option: Stereo Output Mode
-		json_t *stereoOutputModeJ = json_boolean(stereoOutputMode);
-		json_object_set_new(rootJ, "stereoOutputMode", stereoOutputModeJ);
-
-		// Option: Pitch Mode
-		json_t *pitchModeJ = json_boolean(pitchMode);
-		json_object_set_new(rootJ, "pitchMode", pitchModeJ);
-
-		// Option: Loop Samples
-		json_t *loopingJ = json_boolean(loopingEnabled);
-		json_object_set_new(rootJ, "loopingEnabled", loopingJ);
-
-		// Option: Enable Crossfade
-		json_t *crossfadeJ = json_boolean(enableCrossfade);
-		json_object_set_new(rootJ, "enableCrossfade", crossfadeJ);
-
-		// Option: Sort Files
-		json_t *sortJ = json_boolean(sortFiles);
-		json_object_set_new(rootJ, "sortFiles", sortJ);
-
-		// Option: Allow All Files
-		json_t *filesJ = json_boolean(allowAllFiles);
-		json_object_set_new(rootJ, "allowAllFiles", filesJ);
-
-		// Internal state: rootDir
-		json_t *rootDirJ = json_string(rootDir.c_str());
-		json_object_set_new(rootJ, "rootDir", rootDirJ);
-
-		// Internal state: currentBank
-		json_t *bankJ = json_integer(currentBank);
-		json_object_set_new(rootJ, "currentBank", bankJ);
-
-		return rootJ;
-	}
-
-	void dataFromJson(json_t *rootJ) override {
-		// Option: Stereo Output Mode
-		json_t *stereoOutputModeJ = json_object_get(rootJ, "stereoOutputMode");
-		if (stereoOutputModeJ) stereoOutputMode = json_boolean_value(stereoOutputModeJ);
-
-		// Option: Pitch Mode
-		json_t *pitchModeJ = json_object_get(rootJ, "pitchMode");
-		if (pitchModeJ) pitchMode = json_boolean_value(pitchModeJ);
-
-		// Option: Loop Samples
-		json_t *loopingJ = json_object_get(rootJ, "loopingEnabled");
-		if (loopingJ) loopingEnabled = json_boolean_value(loopingJ);
-
-		// Option: Enable Crossfade
-		json_t *crossfadeJ = json_object_get(rootJ, "enableCrossfade");
-		if (crossfadeJ) enableCrossfade = json_boolean_value(crossfadeJ);
-
-		// Option: Sort Files
-		json_t *sortJ = json_object_get(rootJ, "sortFiles");
-		if (sortJ) sortFiles = json_boolean_value(sortJ);
-
-		// Option: Allow All Files
-		json_t *filesJ = json_object_get(rootJ, "allowAllFiles");
-		if (filesJ) allowAllFiles = json_boolean_value(filesJ);
-
-		// Internal state: rootDir
-		json_t *rootDirJ = json_object_get(rootJ, "rootDir");
-		if (rootDirJ) rootDir = json_string_value(rootDirJ);
-
-		// Internal state: currentBank
-		json_t *bankJ = json_object_get(rootJ, "currentBank");
-		if (bankJ) currentBank = json_integer_value(bankJ);
-
-		scanFiles = true;
-	}
+	json_t *dataToJson() override;
+	void dataFromJson(json_t *rootJ) override;
 
 private:
 
@@ -494,10 +465,10 @@ private:
 	void workerThread();
 	void threadedScan();
 	void threadedLoad();
-	void resetCurrentPlayer(float start);
+	void resetCurrentPlayer(const float start);
 	void updateResetLedState();
 	void updateLoadingIndicator();
-	void processAudioFrame(int frameIndex, dsp::Frame<2>& frame, float start);
+	void processAudioFrame(int frameIndex, dsp::Frame<2>& frame, const float start);
 
 	AudioPlayer audioPlayer1;
 	AudioPlayer audioPlayer2;
@@ -561,7 +532,6 @@ private:
 };
 
 // Custom ParamQuantity to handle modal behavior of Start parameter
-// It changes default value and label when in Pitch mode
 struct StartParamQuantity : ParamQuantity {
 
 	float getDefaultValue() override {
@@ -586,6 +556,73 @@ struct StartParamQuantity : ParamQuantity {
 
 	RadioMusic* rm = nullptr;
 };
+
+
+json_t *RadioMusic::dataToJson() {
+	json_t *rootJ = json_object();
+
+	// Option: Stereo Output Mode
+	json_object_set_new(rootJ, "stereoOutputMode", json_boolean(stereoOutputMode));
+
+	// Option: Pitch Mode
+	json_object_set_new(rootJ, "pitchMode", json_boolean(pitchMode));
+
+	// Option: Loop Samples
+	json_object_set_new(rootJ, "loopingEnabled", json_boolean(loopingEnabled));
+
+	// Option: Enable Crossfade
+	json_object_set_new(rootJ, "enableCrossfade", json_boolean(enableCrossfade));
+
+	// Option: Sort Files
+	json_object_set_new(rootJ, "sortFiles", json_boolean(sortFiles));
+
+	// Option: Allow All Files
+	json_object_set_new(rootJ, "allowAllFiles", json_boolean(allowAllFiles));
+
+	// Internal state: rootDir
+	json_object_set_new(rootJ, "rootDir", json_string(rootDir.c_str()));
+
+	// Internal state: currentBank
+	json_object_set_new(rootJ, "currentBank", json_integer(currentBank));
+
+	return rootJ;
+}
+
+void RadioMusic::dataFromJson(json_t *rootJ) {
+	// Option: Stereo Output Mode
+	json_t *stereoOutputModeJ = json_object_get(rootJ, "stereoOutputMode");
+	if (stereoOutputModeJ) stereoOutputMode = json_boolean_value(stereoOutputModeJ);
+
+	// Option: Pitch Mode
+	json_t *pitchModeJ = json_object_get(rootJ, "pitchMode");
+	if (pitchModeJ) pitchMode = json_boolean_value(pitchModeJ);
+
+	// Option: Loop Samples
+	json_t *loopingJ = json_object_get(rootJ, "loopingEnabled");
+	if (loopingJ) loopingEnabled = json_boolean_value(loopingJ);
+
+	// Option: Enable Crossfade
+	json_t *crossfadeJ = json_object_get(rootJ, "enableCrossfade");
+	if (crossfadeJ) enableCrossfade = json_boolean_value(crossfadeJ);
+
+	// Option: Sort Files
+	json_t *sortJ = json_object_get(rootJ, "sortFiles");
+	if (sortJ) sortFiles = json_boolean_value(sortJ);
+
+	// Option: Allow All Files
+	json_t *filesJ = json_object_get(rootJ, "allowAllFiles");
+	if (filesJ) allowAllFiles = json_boolean_value(filesJ);
+
+	// Internal state: rootDir
+	json_t *rootDirJ = json_object_get(rootJ, "rootDir");
+	if (rootDirJ) rootDir = json_string_value(rootDirJ);
+
+	// Internal state: currentBank
+	json_t *bankJ = json_object_get(rootJ, "currentBank");
+	if (bankJ) currentBank = json_integer_value(bankJ);
+
+	scanFiles = true;
+}
 
 
 RadioMusic::RadioMusic() {
@@ -617,6 +654,7 @@ RadioMusic::~RadioMusic() {
 	abortLoad.store(true);
 	stopWorker.store(true);
 	workerDoWork.store(true);
+	cond.notify_all(); // Wake up worker thread
 	worker->join();
 }
 
@@ -707,32 +745,34 @@ void RadioMusic::threadedScan() {
 	loadFiles = true;
 }
 
-// Worker thread main loop - uses atomic flags with spin-wait
 void RadioMusic::workerThread() {
 	while (true) {
-		// Check if we should stop
+		std::unique_lock<std::mutex> lock(mutex);
+
+		// Wait on condition variable instead of spin-waiting
+		cond.wait(lock, [this] {
+			return stopWorker.load() ||
+			       scanAudioFiles.load() ||
+			       loadAudioFiles.load();
+		});
+
 		if (stopWorker.load()) {
 			return;
 		}
 
-		// Wait for work to be signaled via atomic flag
-		// Use spin-wait with sleep to avoid busy-waiting
-		if (!workerDoWork.load()) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
-			continue;
-		}
-
-		// Do the work
 		if (scanAudioFiles.load()) {
-			threadedScan();
 			scanAudioFiles.store(false);
+			lock.unlock();
+			threadedScan();
+			lock.lock();
 		}
 		if (loadAudioFiles.load()) {
-			threadedLoad();
 			loadAudioFiles.store(false);
+			lock.unlock();
+			threadedLoad();
+			lock.lock();
 		}
 
-		// Signal that work is complete by clearing the flag
 		workerDoWork.store(false);
 	}
 }
@@ -753,14 +793,20 @@ void RadioMusic::threadedLoad() {
 	loadingFiles.store(true);
 
 	drwav wav;
-	for (unsigned int i = 0; i < files.size(); ++i) {
+	for (size_t i = 0; i < files.size(); ++i) {
+		// Check for abort signal before loading each file
+		if (abortLoad.load()) {
+			tmpObjectPool->clear();
+			loadingFiles.store(false);
+			return;
+		}
+
 		std::shared_ptr<AudioObject> object;
 
-		// Quickly determine if file is WAV file
 		if (drwav_init_file(&wav, files[i].c_str(), nullptr)) {
 			object = std::make_shared<WavAudioObject>();
 			if (drwav_uninit(&wav) != DRWAV_SUCCESS) {
-				FATAL("Failed to uninitialize object %d %s", i, files[i].c_str());
+				FATAL("Failed to uninitialize object %zu %s", i, files[i].c_str());
 			}
 		} else { // if load fails, interpret as raw audio
 			object = std::make_shared<RawAudioObject>();
@@ -768,12 +814,6 @@ void RadioMusic::threadedLoad() {
 
 		// Actually load files
 		if (object->load(files[i])) {
-			// Abort the current load process and release the memory.
-			if (abortLoad) {
-				tmpObjectPool->clear();
-				loadingFiles = false;
-				return;
-			}
 
 			const unsigned long memory = object->totalSamples*sizeof(float);
 			if ((tmpObjectPool->memoryUsage + memory) < MAX_BANK_SIZE) {
@@ -785,7 +825,7 @@ void RadioMusic::threadedLoad() {
 				break;
 			}
 		} else {
-			WARN("Failed to load object %d %s", i, files[i].c_str());
+			WARN("Failed to load object %zu %s", i, files[i].c_str());
 			loadError.store(true);
 		}
 	}
@@ -793,12 +833,11 @@ void RadioMusic::threadedLoad() {
 	filesLoaded.store(true);
 
 	// Wait for object audio pool pointers to be swapped (in main thread).
-	// Use simple spin-wait with brief sleeps to avoid busy-waiting
-	int waitCount = 0;
-	while (filesLoaded.load() && !stopWorker.load() && waitCount < 1000) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
-		waitCount++;
-	}
+	// Wait for pool swap using condition variable
+	std::unique_lock<std::mutex> lock(mutex);
+	cond.wait_for(lock, std::chrono::seconds(5), [this] {
+		return !filesLoaded.load() || stopWorker.load();
+	});
 
 	// After swap, release memory of previous audio object pool.
 	tmpObjectPool->clear();
@@ -806,7 +845,7 @@ void RadioMusic::threadedLoad() {
 	loadingFiles.store(false);
 }
 
-void RadioMusic::resetCurrentPlayer(float start) {
+void RadioMusic::resetCurrentPlayer(const float start) {
 	if (!currentPlayer->object() || currentPlayer->object()->channels == 0) {
 		return;
 	}
@@ -886,13 +925,14 @@ void RadioMusic::updateLoadingIndicator() {
 	}
 }
 
-void RadioMusic::processAudioFrame(int frameIndex, dsp::Frame<2>& frame, float start) {
+void RadioMusic::processAudioFrame(int frameIndex, dsp::Frame<2>& frame, const float start) {
 	if (!currentPlayer->object() || currentPlayer->object()->channels == 0) {
 		return;
 	}
 
 	const unsigned int channels = currentPlayer->object()->channels;
 	const float peak = std::max(currentPlayer->object()->peak, 0.001f); // Prevent division by zero
+	const float gain = 5.0f / peak; // Pre-calculate gain
 
 	// Crossfade?
 	if (crossfade) {
@@ -904,7 +944,7 @@ void RadioMusic::processAudioFrame(int frameIndex, dsp::Frame<2>& frame, float s
 			const float prevSample = previousPlayer->play(channel);
 			const float out = currSample * xfadeGain1 + prevSample * xfadeGain2;
 
-			frame.samples[channel] = 5.0f * out / peak;
+			frame.samples[channel] = gain * out;
 		}
 
 		currentPlayer->advance(loopingEnabled, pitchMode);
@@ -922,7 +962,7 @@ void RadioMusic::processAudioFrame(int frameIndex, dsp::Frame<2>& frame, float s
 			const float sample = currentPlayer->play(channel);
 			const float out = sample * fadeOutGain;
 
-			frame.samples[channel] = 5.0f * out / peak;
+			frame.samples[channel] = gain * out;
 		}
 
 		currentPlayer->advance(loopingEnabled, pitchMode);
@@ -936,7 +976,7 @@ void RadioMusic::processAudioFrame(int frameIndex, dsp::Frame<2>& frame, float s
 	else {
 		for (unsigned int channel = 0; channel < channels; channel++) {
 			const float out = currentPlayer->play(channel);
-			frame.samples[channel] = 5.0f * out / peak;
+			frame.samples[channel] = gain * out;
 		}
 
 		currentPlayer->advance(loopingEnabled, pitchMode);
@@ -953,6 +993,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 	if (scanFiles) {
 		scanAudioFiles.store(true);
 		workerDoWork.store(true);
+		cond.notify_one();
 
 		scanFiles = false;
 	}
@@ -968,6 +1009,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 
 			loadAudioFiles.store(true);
 			workerDoWork.store(true);
+			cond.notify_one();
 
 			loadFiles = false;
 		}
@@ -989,6 +1031,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 		elapsedMs = 0;  // Reset station to beginning
 
 		filesLoaded.store(false);  // Signal worker thread that swap is complete
+		cond.notify_one(); // Signal worker that swap is complete
 	}
 
 	// Bank selection mode
@@ -1007,10 +1050,10 @@ void RadioMusic::process(const ProcessArgs &args) {
 			// Show bank selection in LED bar
 		{
 			std::lock_guard<std::mutex> lock(mutex);
-			lights[LED_0_LIGHT].value = (1 && (currentBank & 1));
-			lights[LED_1_LIGHT].value = (1 && (currentBank & 2));
-			lights[LED_2_LIGHT].value = (1 && (currentBank & 4));
-			lights[LED_3_LIGHT].value = (1 && (currentBank & 8));
+			lights[LED_0_LIGHT].value = ((currentBank & 1) != 0) ? 1.0f : 0.0f;
+			lights[LED_1_LIGHT].value = ((currentBank & 2) != 0) ? 1.0f : 0.0f;
+			lights[LED_2_LIGHT].value = ((currentBank & 4) != 0) ? 1.0f : 0.0f;
+			lights[LED_3_LIGHT].value = ((currentBank & 8) != 0) ? 1.0f : 0.0f;
 		}
 		lights[RESET_LIGHT].value = 1.0f;
 	}
@@ -1061,7 +1104,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 		previousPlayer = currentPlayer;
 		currentPlayer = tmp;
 
-		if (index < (int)currentObjectPool->objects.size()) {
+		if (index < static_cast<int>(currentObjectPool->objects.size())) {
 			currentPlayer->load(currentObjectPool->objects[index]);
 
 			if (!pitchMode) {
@@ -1115,10 +1158,10 @@ void RadioMusic::process(const ProcessArgs &args) {
 			return;
 		}
 
-		dsp::Frame<2> frame[BLOCK_SIZE];
+		dsp::Frame<2> audioFrames[BLOCK_SIZE];
 
 		for (int i = 0; i < BLOCK_SIZE; i++) {
-			processAudioFrame(i, frame[i], currentStartParam);
+			processAudioFrame(i, audioFrames[i], currentStartParam);
 		}
 
 		// Sample rate conversion to match Rack engine sample rate.
@@ -1127,7 +1170,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 			int inLen = BLOCK_SIZE;
 			int outLen = outputBuffer.capacity();
 
-			outputSrc.process(frame, &inLen, outputBuffer.endData(), &outLen);
+			outputSrc.process(audioFrames, &inLen, outputBuffer.endData(), &outLen);
 			outputBuffer.endIncr(outLen);
 		}
 	}
@@ -1170,11 +1213,12 @@ void RadioMusic::process(const ProcessArgs &args) {
 			const float sampleTime = args.sampleTime;
 			vumeter.process(sampleTime, frame.samples[0]/5.0f);
 
+			// Only update LED brightness every 512 samples to reduce overhead
 			if (tick % 512 == 0) {
-				for (int i = 0; i < 4; i++){
-					float b = vumeter.getBrightness(-6.0f * (i+1), 0.0f * i);
-					lights[LED_3_LIGHT - i].setBrightness(b);
-				}
+				lights[LED_3_LIGHT].setBrightness(vumeter.getBrightness(-6.0f, 0.0f));
+				lights[LED_2_LIGHT].setBrightness(vumeter.getBrightness(-12.0f, -6.0f));
+				lights[LED_1_LIGHT].setBrightness(vumeter.getBrightness(-18.0f, -12.0f));
+				lights[LED_0_LIGHT].setBrightness(vumeter.getBrightness(-24.0f, -18.0f));
 			}
 		}
 	}
@@ -1191,7 +1235,7 @@ struct RadioMusicDirDialogItem : MenuItem {
 
 		const std::string dir = \
 			rm->rootDir.empty() ? asset::user("") : rm->rootDir;
-		char *path = osdialog_file(OSDIALOG_OPEN_DIR, dir.c_str(), NULL, NULL);
+		char *path = osdialog_file(OSDIALOG_OPEN_DIR, dir.c_str(), nullptr, nullptr);
 		if (path) {
 			rm->rootDir = std::string(path);
 			rm->scanFiles = true;
