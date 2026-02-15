@@ -7,7 +7,7 @@
 
 // Resistor ladder values for Digital-to-Analog conversion
 const float DAC_MULT1[SR_SIZE] = {1.28f, 1.28f, 1.28f, 1.28f, 1.28f, 1.28f, 1.28f, 1.28f};
-const float DAC_MULT2[SR_SIZE] = {5.0f, 2.5f, 1.25f, 0.625f, 0.3125f, 0.1525f, 0.078125f, 0.0390625f};
+const float DAC_MULT2[SR_SIZE] = {5.0f, 2.5f, 1.25f, 0.625f, 0.3125f, 0.15625f, 0.078125f, 0.0390625f};
 
 struct Nosering : Module {
 	enum ParamIds {
@@ -35,7 +35,7 @@ struct Nosering : Module {
 		NUM_LIGHTS
 	};
 
-	Nosering(): phase(0)
+	Nosering(): phase(0.0f)
 	{
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 
@@ -123,7 +123,7 @@ void Nosering::process(const ProcessArgs &args) {
 		unsigned int oldData = shiftRegister[SR_SIZE - 1];
 
 		const bool invertOldData = (params[INVERT_OLD_DATA_PARAM].getValue() != 0.0f) ||
-								   (inputs[INV_OUT_INPUT].getVoltage() != 0.0f);
+							   (inputs[INV_OUT_INPUT].getVoltage() > 2.0f);
 		if (invertOldData) {
 			oldData = (oldData == 1) ? 0 : 1;
 		}
@@ -138,7 +138,7 @@ void Nosering::process(const ProcessArgs &args) {
 
 		sum += shiftRegister[0];
 
-		// Only do stale data detection if we are not inverting old data.invertOldData
+		// Only do stale data detection if we are not inverting old data.
 		// If we are, the shift register should never be stale.
 		if (!invertOldData) {
 			// Stale data detection (either all 0s or all 1s in the shift register).
