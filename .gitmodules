@@ -1,3 +1,4 @@
 [submodule "src/dep/dr_libs"]
 	path = src/dep/dr_libs
 	url = https://github.com/mackron/dr_libs.git
+	shallow = true
