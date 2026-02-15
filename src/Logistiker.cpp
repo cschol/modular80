@@ -51,11 +51,13 @@ private:
 
 	float x;
 	float phase;
+	bool doReset = false;  // Reset flag that persists across process calls
 };
 
 void Logistiker::onReset() {
 	x = 0.0f;
 	phase = 0.0f;
+	doReset = false;
 }
 
 float Logistiker::logistic(const float x, const float r) {
@@ -67,8 +69,7 @@ void Logistiker::process(const ProcessArgs &args) {
 		return;
 	}
 
-	static bool doReset(false);
-
+	// Check for reset triggers (independent of clock)
 	if (rstButtonTrigger.process(params[RESET_PARAM].getValue()) ||
 	   (inputs[RST_INPUT].isConnected() && rstInputTrigger.process(inputs[RST_INPUT].getVoltage())))
 	{
@@ -103,10 +104,12 @@ void Logistiker::process(const ProcessArgs &args) {
 
 		const float r = clamp(params[R_PARAM].getValue() + inputs[R_INPUT].getVoltage(), 0.0f, 8.0f);
 
-		// Don't let population die!
+		// Apply logistic map: x_n+1 = r * x_n * (1 - x_n)
+		// Clamped to [0.00001, 1.0] to prevent population extinction and numerical instability
 		x = clamp(logistic(x, r), 0.00001f, 1.0f);
 	}
 
+	// Output scaled to ±10V range
 	outputs[X_OUTPUT].setVoltage(clamp(x * 10.0f, -10.0f, 10.0f));
 }
 
