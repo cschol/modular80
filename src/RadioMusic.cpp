@@ -645,6 +645,8 @@ RadioMusic::RadioMusic() {
 	currentObjectPool = &audioContainer1;
 	tmpObjectPool = &audioContainer2;
 
+	stopWorker.store(false);
+
 	worker = std::make_shared<std::thread>(&RadioMusic::workerThread, this);
 
 	init();
@@ -806,7 +808,7 @@ void RadioMusic::threadedLoad() {
 		if (drwav_init_file(&wav, files[i].c_str(), nullptr)) {
 			object = std::make_shared<WavAudioObject>();
 			if (drwav_uninit(&wav) != DRWAV_SUCCESS) {
-				FATAL("Failed to uninitialize object %zu %s", i, files[i].c_str());
+				FATAL("Failed to uninitialize object %d %s", (int)i, files[i].c_str());
 			}
 		} else { // if load fails, interpret as raw audio
 			object = std::make_shared<RawAudioObject>();
@@ -820,12 +822,12 @@ void RadioMusic::threadedLoad() {
 				tmpObjectPool->objects.push_back(std::move(object));
 				tmpObjectPool->memoryUsage += memory;
 			} else {
-				WARN("Bank memory limit of %ld Bytes exceeded. Aborting loading of audio objects.", MAX_BANK_SIZE);
+				WARN("Bank memory limit of %lld Bytes exceeded. Aborting loading of audio objects.", (long long)MAX_BANK_SIZE);
 				loadError = true;
 				break;
 			}
 		} else {
-			WARN("Failed to load object %zu %s", i, files[i].c_str());
+			WARN("Failed to load object %d %s", (int)i, files[i].c_str());
 			loadError.store(true);
 		}
 	}
