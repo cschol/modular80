@@ -1,4 +1,10 @@
+### 2.0.3 (2026-03-03)
+
+- Fix worker thread silence caused by uninitialised stopWorker atomic (Mark)
+- Fix error log formatting on Windows platform (Mark)
+
 ### 2.0.2 (2026-02-14)
+
 - Fix Logistiker reset flag bug that could cause delayed reset behavior
 - Improve Logistiker reset logic to work independently of clock input
 - Fix Nosering DAC coefficient precision for accurate voltage output scaling
@@ -11,6 +17,7 @@
 - Code documentation improvements and error handling enhancements across all modules
 
 ### 2.0.1 (2022-01-07)
+
 - Fix playback behavior in Radio Music to keep playing when station is changed (match hardware).
 
 ### 2.0.0 (2021-10-18)
