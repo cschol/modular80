@@ -442,9 +442,9 @@ struct RadioMusic : Module {
 	void clearCurrentBank();
 
 	// Context menu
-	bool loadFiles;
-	bool scanFiles;
-	bool selectBank;
+	std::atomic<bool> loadFiles{false};
+	std::atomic<bool> scanFiles{false};
+	std::atomic<bool> selectBank{false};
 
 	// Settings
 	bool stereoOutputMode;
@@ -621,7 +621,7 @@ void RadioMusic::dataFromJson(json_t *rootJ) {
 	json_t *bankJ = json_object_get(rootJ, "currentBank");
 	if (bankJ) currentBank = json_integer_value(bankJ);
 
-	scanFiles = true;
+	scanFiles.store(true);
 }
 
 
@@ -689,9 +689,9 @@ void RadioMusic::init() {
 	// Initialize cached start parameter
 	currentStartParam = 0.0f;
 
-	selectBank = false;
-	loadFiles = false;
-	scanFiles = false;
+	selectBank.store(false);
+	loadFiles.store(false);
+	scanFiles.store(false);
 
 	filesLoaded.store(false);
 	loadingFiles.store(false);
@@ -744,7 +744,7 @@ void RadioMusic::threadedScan() {
 		currentBank = clamp(currentBank, 0, (int)scanner.banks.size()-1);
 	}
 
-	loadFiles = true;
+	loadFiles.store(true);
 }
 
 void RadioMusic::workerThread() {
@@ -992,15 +992,15 @@ void RadioMusic::process(const ProcessArgs &args) {
 		return;
 	}
 
-	if (scanFiles) {
+	if (scanFiles.load()) {
 		scanAudioFiles.store(true);
 		workerDoWork.store(true);
 		cond.notify_one();
 
-		scanFiles = false;
+		scanFiles.store(false);
 	}
 
-	if (loadFiles) {
+	if (loadFiles.load()) {
 		// If we are already loading, tell the thread to abort the
 		// current loading process.
 		if (loadingFiles.load() && !abortLoad.load()) {
@@ -1013,7 +1013,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 			workerDoWork.store(true);
 			cond.notify_one();
 
-			loadFiles = false;
+			loadFiles.store(false);
 		}
 	}
 
@@ -1037,7 +1037,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 	}
 
 	// Bank selection mode
-	if (selectBank) {
+	if (selectBank.load()) {
 		// Bank is selected via Reset button
 		if (rstButtonTrigger.process(params[RESET_PARAM].getValue())) {
 			{
@@ -1149,7 +1149,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 		updateResetLedState();
 	}
 
-	if (!flashResetLed && !selectBank) {
+	if (!flashResetLed && !selectBank.load()) {
 		lights[RESET_LIGHT].value = 0.0f;
 	}
 
@@ -1211,7 +1211,7 @@ void RadioMusic::process(const ProcessArgs &args) {
 		}
 
 		// Disable VU Meter in Bank Selection mode.
-		if (!selectBank) {
+		if (!selectBank.load()) {
 			const float sampleTime = args.sampleTime;
 			vumeter.process(sampleTime, frame.samples[0]/5.0f);
 
@@ -1240,7 +1240,7 @@ struct RadioMusicDirDialogItem : MenuItem {
 		char *path = osdialog_file(OSDIALOG_OPEN_DIR, dir.c_str(), nullptr, nullptr);
 		if (path) {
 			rm->rootDir = std::string(path);
-			rm->scanFiles = true;
+			rm->scanFiles.store(true);
 			free(path);
 		}
 	}
@@ -1249,15 +1249,15 @@ struct RadioMusicDirDialogItem : MenuItem {
 struct RadioMusicSelectBankItem : MenuItem {
 	RadioMusic *rm;
 	void onAction(const event::Action &e) override {
-		rm->selectBank = !rm->selectBank;
+		rm->selectBank.store(!rm->selectBank.load());
 
-		if (rm->selectBank == false) {
-			rm->loadFiles = true;
+		if (rm->selectBank.load() == false) {
+			rm->loadFiles.store(true);
 		}
 	}
 	void step() override {
-		text = (rm->selectBank != true) ? "Enter Bank Select Mode" : "Exit Bank Select Mode";
-		rightText = CHECKMARK(rm->selectBank);
+		text = (rm->selectBank.load() != true) ? "Enter Bank Select Mode" : "Exit Bank Select Mode";
+		rightText = CHECKMARK(rm->selectBank.load());
 	}
 };
 

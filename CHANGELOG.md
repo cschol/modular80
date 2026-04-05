@@ -1,3 +1,7 @@
+### 2.0.4 (2026-04-04)
+
+- Fix RadioMusic Bank Select Mode not changing bank (threading race condition)
+
 ### 2.0.3 (2026-03-03)
 
 - Fix worker thread silence caused by uninitialised stopWorker atomic (Mark)
